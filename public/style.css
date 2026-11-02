@@ -254,3 +254,14 @@ dialog.sheet::backdrop { background: rgba(5, 8, 25, .7); }
 .p-row .ct { text-align: right; white-space: nowrap; font-size: var(--fs-sm); }
 .field[hidden] { display: none; }
 .form .actions { margin: 0; }
+
+/* Vue extension */
+.grid-head { cursor: pointer; }
+.set-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: var(--s-md) var(--s-sm); }
+.set-tile { cursor: pointer; min-width: 0; }
+.set-tile .st-n { font-size: var(--fs-xxs); font-weight: 600; margin-top: var(--s-xs); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.set-tile .st-p { font-size: var(--fs-xxs); color: var(--muted); }
+.set-tile.missing .thumb { border-color: var(--border); }
+.set-tile.missing .thumb img { filter: grayscale(1); opacity: .35; }
+.set-tile.missing .thumb .rb { background: var(--border); color: var(--text); }
+.back { border: 0; background: none; color: var(--accent); font-weight: 600; font-size: var(--fs-sm); padding: 0 0 var(--s-sm); cursor: pointer; min-height: 32px; }
