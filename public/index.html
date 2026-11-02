@@ -3,56 +3,61 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Ma Collection DBS</title>
+  <title>KI·DEX</title>
   <meta name="description" content="Collection de cartes Dragon Ball Super : enregistrement par numéro, valeur de marché et suivi.">
-  <meta name="theme-color" content="#14161c">
+  <meta name="theme-color" content="#0B1230">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="KI·DEX">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Russo+One&display=swap">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <header class="top">
     <h1 id="title">Collection</h1>
-    <span id="updated" class="muted small"></span>
+    <span id="updated" class="muted"></span>
   </header>
 
   <main>
     <!-- COLLECTION -->
     <section id="view-collection" class="view active">
-      <div class="summary card-box">
-        <div class="muted small">Valeur de la collection</div>
-        <div class="total" id="total">—</div>
-        <div class="row small">
-          <span id="delta"></span>
-          <span class="muted" id="counts"></span>
-        </div>
-        <div class="row small" id="pl"></div>
-        <div class="periods" id="periods">
-          <button data-p="30">1M</button><button data-p="90">3M</button><button data-p="180" class="on">6M</button><button data-p="365">1A</button><button data-p="0">Tout</button>
-        </div>
-        <div class="chart-wrap"><canvas id="chart-total"></canvas></div>
-        <p class="muted small empty-chart" id="chart-empty" hidden>L'historique se construit au fil des mises à jour (quotidiennes) des prix.</p>
+      <div class="hero">
+        <div class="hero-label">Valeur de la collection</div>
+        <div class="hero-value" id="total">—</div>
+        <div class="hero-trend" id="delta"></div>
+        <div class="chart" id="chart-total"></div>
+        <div class="chart-axis" id="axis-total"></div>
+        <p class="empty-chart" id="chart-empty" hidden>L'historique se construit au fil des mises à jour quotidiennes des prix.</p>
       </div>
 
+      <div class="chips" id="periods" role="group" aria-label="Période">
+        <button class="chip" data-p="30">1M</button><button class="chip" data-p="90">3M</button><button class="chip" data-p="180">6M</button><button class="chip" data-p="365">1A</button><button class="chip" data-p="0">Tout</button>
+      </div>
+
+      <div class="stats3" id="stats"></div>
       <div class="movers" id="movers"></div>
 
+      <h2 class="section">Mes cartes</h2>
       <div class="toolbar">
-        <input id="filter" type="search" placeholder="Filtrer (nom, numéro…)" autocomplete="off">
-        <select id="sort">
-          <option value="value">Valeur ↓</option>
+        <div class="field-wrap">
+          <svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          <input id="filter" type="search" placeholder="Filtrer (nom, numéro…)" autocomplete="off">
+        </div>
+        <select id="sort" aria-label="Trier">
+          <option value="value">Valeur</option>
           <option value="added">Ajout récent</option>
           <option value="number">Numéro</option>
-          <option value="change">Variation ↓</option>
-          <option value="pl">Plus-value ↓</option>
+          <option value="change">Variation</option>
+          <option value="pl">Plus-value</option>
         </select>
-        <select id="game-filter">
-          <option value="">Tous</option>
-          <option value="fw">Fusion World</option>
-          <option value="masters">Masters</option>
-        </select>
+      </div>
+      <div class="chips" id="game-filter" role="group" aria-label="Jeu">
+        <button class="chip on" data-g="">Tous</button><button class="chip" data-g="fw">Fusion World</button><button class="chip" data-g="masters">Masters</button>
       </div>
       <div id="grid" class="grid"></div>
       <div id="empty" class="empty" hidden>
@@ -64,28 +69,32 @@
     <!-- AJOUT -->
     <section id="view-add" class="view">
       <form id="search-form" class="search">
-        <input id="q" type="search" inputmode="text" autocapitalize="characters" placeholder="Numéro (FB01-001, BT1-031, P-123…) ou nom" autocomplete="off">
+        <div class="field-wrap">
+          <svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          <input id="q" type="search" autocapitalize="characters" placeholder="FB01-001, BT1-031, P-123 ou nom" autocomplete="off">
+        </div>
         <button class="btn primary" type="submit">Chercher</button>
       </form>
-      <label class="btn scan">
-        📷 Scanner une carte
+      <label class="scan">
+        <span class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg></span>
+        <span><b>Scanner une carte</b><span class="muted">Photo de la carte : le numéro est lu automatiquement</span></span>
         <input id="scan-input" type="file" accept="image/*" capture="environment" hidden>
       </label>
-      <div id="scan-status" class="muted small"></div>
+      <div id="scan-status"></div>
       <div id="scan-preview"></div>
       <div id="results" class="results"></div>
     </section>
 
     <!-- RÉGLAGES -->
     <section id="view-settings" class="view">
-      <div class="card-box">
-        <h2>Affichage</h2>
+      <div class="block">
+        <h2 class="section">Affichage</h2>
         <label class="field">Devise
           <select id="currency"><option value="EUR">Euro (€)</option><option value="USD">Dollar ($)</option></select>
         </label>
       </div>
-      <div class="card-box">
-        <h2>Sauvegarde</h2>
+      <div class="block">
+        <h2 class="section">Sauvegarde</h2>
         <p class="muted small">La collection est stockée uniquement sur cet appareil. Exporte-la régulièrement.</p>
         <div class="row gap">
           <button class="btn" id="export">Exporter (JSON)</button>
@@ -93,8 +102,8 @@
           <button class="btn" id="export-csv">Exporter (CSV)</button>
         </div>
       </div>
-      <div class="card-box">
-        <h2>Données</h2>
+      <div class="block">
+        <h2 class="section">Données</h2>
         <p class="muted small" id="data-info"></p>
         <p class="muted small">Cartes, illustrations et prix : TCGplayer (marché US, en USD) via tcgcsv.com, mis à jour chaque jour. Conversion en € au taux BCE du jour. Pour un prix Cardmarket, saisis un prix manuel sur la fiche de la carte.</p>
         <button class="btn danger" id="reset">Effacer la collection</button>
@@ -103,15 +112,22 @@
   </main>
 
   <nav class="tabs">
-    <button data-goto="collection" class="on"><span>🗂️</span>Collection</button>
-    <button data-goto="add"><span>➕</span>Ajouter</button>
-    <button data-goto="settings"><span>⚙️</span>Réglages</button>
+    <button class="tab on" data-goto="collection">
+      <svg class="i" viewBox="0 0 24 24"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg>
+      Collection
+    </button>
+    <button class="fab" data-goto="add" aria-label="Ajouter une carte">
+      <svg class="i" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+    </button>
+    <button class="tab" data-goto="settings">
+      <svg class="i" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+      Réglages
+    </button>
   </nav>
 
-  <dialog id="sheet"><div id="sheet-body"></div></dialog>
+  <dialog id="sheet" class="sheet"><div id="sheet-body"></div></dialog>
   <div id="toast" class="toast" hidden></div>
 
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
   <script type="module" src="app.js"></script>
 </body>
 </html>

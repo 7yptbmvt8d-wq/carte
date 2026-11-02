@@ -1,4 +1,4 @@
-// Ma Collection DBS — application locale (PWA), aucune donnée envoyée à un serveur.
+// KI·DEX — application locale (PWA), aucune donnée envoyée à un serveur.
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -120,27 +120,58 @@ function totalSeries() {
   });
 }
 
-// ---------- Graphiques ----------
+// ---------- Composants KI·DEX (CardThumb, StatTile, TrendBadge, PriceChart) ----------
+const RLABEL = { Common: "C", Uncommon: "UC", Rare: "R", "Super Rare": "SR", "Special Rare": "SPR", "Secret Rare": "SCR", Leader: "L", "Special Leader Rare": "SLR", "Reboot Leader Rare": "RLR", Promo: "PR", "Expansion Rare": "EX", "Starter Rare": "ST", "God Rare": "GDR", Merit: "M", None: "" };
+function rarity(r = "") {
+  const code = RLABEL[r] ?? r.split(/\s+/).map((w) => w[0]).join("").toUpperCase();
+  const tier = /leader/i.test(r) ? "L" : r === "Common" ? "C" : r === "Uncommon" ? "UC"
+    : /^(Super Rare|Expansion Rare)$/.test(r) ? "SR" : /^(Rare|Starter Rare|Promo|None|Merit|)$/.test(r) ? "R" : "SCR";
+  return { code, tier };
+}
+function cardThumb(card, { src, qty = 1, showRarity = true, glow = false, width, cls = "" } = {}) {
+  const { code, tier } = rarity(card?.r);
+  return `<div class="thumb r-${tier}${glow && tier === "SCR" ? " glow" : ""} ${cls}"${width ? ` style="width:${width}px"` : ""}>
+    <img loading="lazy" alt="${esc(card?.name ?? "")}" src="${src ?? (card ? IMG(card.id) : "")}">
+    ${showRarity && code ? `<span class="rb">${esc(code)}</span>` : ""}${qty > 1 ? `<span class="qb">×${qty}</span>` : ""}</div>`;
+}
+const statTile = (label, value, { hint = "", cls = "", display = true } = {}) =>
+  `<div class="stat" aria-label="${esc(label)} : ${esc(value)}${hint ? ", " + esc(hint) : ""}"><span class="l">${esc(label)}</span><span class="v ${display ? "" : "plain"} ${cls}">${esc(value)}</span>${hint ? `<span class="h">${esc(hint)}</span>` : ""}</div>`;
+function trend(rel, size = "xs") {
+  if (rel == null || !isFinite(rel)) return "";
+  const v = rel * 100, n = Math.abs(v) < 0.05, f = (x) => x.toLocaleString("fr-FR", { maximumFractionDigits: 1 });
+  return `<span class="trend ${size} ${n ? "flat" : v > 0 ? "gain" : "loss"}" aria-label="${n ? "Stable" : `${v > 0 ? "Hausse" : "Baisse"} de ${f(Math.abs(v))} pour cent`}">${n ? "—" : v > 0 ? `▲ +${f(v)} %` : `▼ −${f(-v)} %`}</span>`;
+}
+
+// PriceChart : courbe SVG, ligne pointillée de référence (prix d'achat), point final, lecture au doigt
 const charts = {};
-function css(v) { return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
-function lineChart(key, canvas, pts) {
-  charts[key]?.destroy();
-  if (!window.Chart || pts.length < 2) return false;
-  const accent = css("--accent");
-  charts[key] = new Chart(canvas, {
-    type: "line",
-    data: { labels: pts.map((p) => fmtDate(p[0]).slice(0, 5)), datasets: [{ data: pts.map((p) => p[1]), borderColor: accent, backgroundColor: accent + "22", fill: true, tension: 0.25, borderWidth: 2, pointRadius: pts.length < 25 ? 2 : 0 }] },
-    options: {
-      responsive: true, maintainAspectRatio: false, animation: false, interaction: { intersect: false, mode: "index" },
-      plugins: { legend: { display: false }, tooltip: { callbacks: { title: (c) => fmtDate(pts[c[0].dataIndex][0]), label: (c) => money(c.parsed.y) } } },
-      scales: {
-        x: { ticks: { maxTicksLimit: 5, color: css("--muted") }, grid: { display: false } },
-        y: { ticks: { maxTicksLimit: 4, color: css("--muted"), callback: (v) => money(v, 0) }, grid: { color: css("--border") } },
-      },
-    },
-  });
+function priceChart(key, el, pts, { height = 110, color = "var(--accent)", ref = null, grid = false, endDot = true, axis, readout } = {}) {
+  charts[key] = { el, pts, opts: { height, color, ref, grid, endDot, axis, readout } };
+  const w = el.clientWidth;
+  if (!w || pts.length < 2) { el.innerHTML = ""; if (axis) axis.innerHTML = ""; if (readout) readout.textContent = ""; return false; }
+  const data = pts.map((p) => p[1]), vals = ref != null ? [...data, ref] : data;
+  const min = Math.min(...vals), max = Math.max(...vals), pad = 6, span = max - min || 1;
+  const y = (v) => pad + (1 - (v - min) / span) * (height - pad * 2), x = (i) => (i / (data.length - 1)) * w;
+  const last = data.at(-1), first = data[0];
+  el.innerHTML = `<svg width="${w}" height="${height}" role="img" aria-label="Évolution de la cote, ${last >= first ? "en hausse" : "en baisse"}">
+    ${grid ? [0.25, 0.5, 0.75].map((f) => `<line x1="0" x2="${w}" y1="${height * f}" y2="${height * f}" style="stroke:var(--line)" stroke-width="1"/>`).join("") : ""}
+    ${ref != null ? `<line x1="0" x2="${w}" y1="${y(ref)}" y2="${y(ref)}" style="stroke:var(--muted)" stroke-width="1" stroke-dasharray="4 4"/>` : ""}
+    <polyline points="${data.map((v, i) => `${x(i)},${y(v)}`).join(" ")}" fill="none" style="stroke:${color}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    ${endDot ? `<circle cx="${x(data.length - 1)}" cy="${y(last)}" r="5" style="fill:${color}"/>` : ""}
+    <circle class="cursor" r="5" cx="0" cy="0" visibility="hidden" style="fill:${color};stroke:var(--bg)" stroke-width="2"/>
+  </svg>`;
+  if (axis) axis.innerHTML = `<span>${fmtDate(pts[0][0])}</span><span>${fmtDate(pts.at(-1)[0])}</span>`;
+  const show = (i) => { if (readout) readout.textContent = `${fmtDate(pts[i][0])} · ${money(data[i])}`; };
+  if (readout) readout.textContent = ref != null ? `Ligne pointillée : prix d'achat (${money(ref)})` : "";
+  const cur = el.querySelector(".cursor");
+  el.onpointermove = el.onpointerdown = (e) => {
+    const i = Math.max(0, Math.min(data.length - 1, Math.round(((e.clientX - el.getBoundingClientRect().left) / w) * (data.length - 1))));
+    cur.setAttribute("cx", x(i)); cur.setAttribute("cy", y(data[i])); cur.setAttribute("visibility", "visible"); show(i);
+  };
+  el.onpointerleave = () => cur.setAttribute("visibility", "hidden");
   return true;
 }
+let resizeT;
+addEventListener("resize", () => { clearTimeout(resizeT); resizeT = setTimeout(() => { for (const [k, c] of Object.entries(charts)) if (c.el.isConnected) priceChart(k, c.el, c.pts, c.opts); }, 150); });
 
 // ---------- Vue Collection ----------
 async function renderCollection() {
@@ -151,33 +182,36 @@ async function renderCollection() {
     if (it.buy != null && it.buy !== "") { cost += +it.buy * it.qty; costVal += v; }
   }
   $("#total").textContent = money(total);
-  $("#counts").textContent = `${n} carte${n > 1 ? "s" : ""} · ${items.length} réf.`;
-  const pl = costVal - cost;
-  $("#pl").innerHTML = cost ? `<span class="muted">Investi ${money(cost)}</span><span class="${signCls(pl)}">Plus-value ${pl >= 0 ? "+" : ""}${money(pl)} (${pct(pl / cost)})</span>` : "";
-  $$("#periods button").forEach((b) => b.classList.toggle("on", +b.dataset.p === store.settings.period));
+  $$("#periods .chip").forEach((b) => { const on = +b.dataset.p === store.settings.period; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on); });
 
   const series = totalSeries();
   if (series.length) series[series.length - 1][1] = total;
-  const ok = lineChart("total", $("#chart-total"), series);
-  $("#chart-total").parentElement.hidden = !ok;
+  const ok = priceChart("total", $("#chart-total"), series, { color: "var(--on-accent)", axis: $("#axis-total") });
   $("#chart-empty").hidden = ok || !items.length;
   if (series.length >= 2) {
-    const d = series.at(-1)[1] - series[0][1];
-    $("#delta").innerHTML = `<span class="${signCls(d)}">${d >= 0 ? "+" : ""}${money(d)} (${pct(series[0][1] ? d / series[0][1] : null)})</span> <span class="muted">depuis le ${fmtDate(series[0][0])}</span>`;
+    const d = series.at(-1)[1] - series[0][1], r = series[0][1] ? d / series[0][1] : 0;
+    const f = (x) => Math.abs(x * 100).toLocaleString("fr-FR", { maximumFractionDigits: 1 });
+    $("#delta").textContent = `${Math.abs(r) < 0.0005 ? "— stable" : `${d > 0 ? "▲ +" : "▼ −"}${money(Math.abs(d))} (${f(r)} %)`} depuis le ${fmtDate(series[0][0])}`;
   } else $("#delta").textContent = "";
 
+  const pl = costVal - cost;
+  $("#stats").innerHTML =
+    statTile("Cartes", String(n), { hint: `${items.length} réf.` }) +
+    statTile("Investi", cost ? money(cost, 0) : "—", { hint: cost ? "prix d'achat" : "non renseigné" }) +
+    statTile("Plus-value", cost ? `${pl >= 0 ? "+" : "−"}${money(Math.abs(pl), 0)}` : "—", { cls: cost ? (pl >= 0 ? "gain" : "loss") : "", hint: cost ? pct(pl / cost) : "" });
+
   // Plus fortes hausses / baisses
-  const ch = items.map((it) => [it, change(it)]).filter(([it, c]) => c && (unitEUR(it) || 0) >= 0.5 && c.rel !== 0);
+  const ch = items.map((it) => [it, change(it)]).filter(([it, c]) => c && (unitEUR(it) || 0) >= 0.5 && Math.abs(c.rel) >= 0.0005);
   const up = ch.filter(([, c]) => c.rel > 0).sort((a, b) => b[1].rel - a[1].rel).slice(0, 3);
   const dn = ch.filter(([, c]) => c.rel < 0).sort((a, b) => a[1].rel - b[1].rel).slice(0, 3);
-  const mv = (arr) => arr.map(([it, c]) => `<div class="mover" data-uid="${it.uid}"><span>${esc(byId.get(it.id)?.name ?? it.id)}</span><span class="${signCls(c.rel)}">${pct(c.rel)}</span></div>`).join("") || `<div class="muted small">—</div>`;
-  $("#movers").innerHTML = ch.length ? `<div class="card-box"><h3>Hausses</h3>${mv(up)}</div><div class="card-box"><h3>Baisses</h3>${mv(dn)}</div>` : "";
+  const mv = (arr) => arr.map(([it, c]) => { const cd = byId.get(it.id); return `<div class="mover" data-uid="${it.uid}">${cardThumb(cd, { width: 32, showRarity: false })}<div class="grow"><div class="nm">${esc(cd?.name ?? it.id)}</div>${trend(c.rel)}</div></div>`; }).join("") || `<div class="muted small">—</div>`;
+  $("#movers").innerHTML = ch.length ? `<div class="block"><h3>Hausses</h3>${mv(up)}</div><div class="block"><h3>Baisses</h3>${mv(dn)}</div>` : "";
 
   renderGrid();
 }
 
 function renderGrid() {
-  const q = $("#filter").value.trim().toLowerCase(), g = $("#game-filter").value, sort = $("#sort").value;
+  const q = $("#filter").value.trim().toLowerCase(), g = $("#game-filter .chip.on")?.dataset.g ?? "", sort = $("#sort").value;
   let list = store.items.map((it) => ({ it, c: byId.get(it.id), v: unitEUR(it) }));
   if (g) list = list.filter((x) => x.c?.g === g);
   if (q) list = list.filter((x) => `${x.c?.name} ${x.c?.n} ${sets.get(x.c?.s)?.name} ${x.c?.r} ${x.it.note ?? ""}`.toLowerCase().includes(q));
@@ -191,18 +225,13 @@ function renderGrid() {
   };
   list.sort(sorters[sort]);
   $("#empty").hidden = store.items.length > 0;
-  $("#grid").innerHTML = list.map(({ it, c, v }) => {
-    const chg = change(it);
-    return `<div class="tile" data-uid="${it.uid}">
-      ${it.qty > 1 ? `<span class="qty">×${it.qty}</span>` : ""}
-      <img loading="lazy" alt="" src="${IMG(it.id)}" data-photo="${it.photo ? it.uid : ""}">
-      <div class="info">
-        <div class="name">${esc(c?.name ?? "Carte inconnue")}</div>
-        <div class="meta">${esc(c?.n ?? "")} · ${esc(c?.r ?? "")}</div>
-        <div class="price"><span>${money(v)}</span>${chg ? `<span class="badge ${signCls(chg.rel)}">${pct(chg.rel)}</span>` : ""}</div>
-      </div></div>`;
-  }).join("");
-  $$("#grid img[data-photo]:not([data-photo=''])").forEach(async (img) => { const u = await photoUrl(img.dataset.photo); if (u) img.src = u; });
+  $("#grid").innerHTML = list.map(({ it, c, v }) => `<div class="tile" data-uid="${it.uid}" role="button" tabindex="0">
+      ${cardThumb(c, { qty: it.qty })}
+      <div class="t-name">${esc(c?.name ?? "Carte inconnue")}</div>
+      <div class="t-meta">${esc(c?.n ?? "")} · ${esc(GAME[c?.g] ?? "")}</div>
+      <div class="t-price"><b>${money(v)}</b>${trend(change(it)?.rel)}</div>
+    </div>`).join("");
+  for (const it of list.filter((x) => x.it.photo)) photoUrl(it.it.uid).then((u) => { const img = u && $(`#grid .tile[data-uid="${it.it.uid}"] img`); if (img) img.src = u; });
 }
 
 // ---------- Recherche / ajout ----------
@@ -219,38 +248,42 @@ function renderResults(list, msg) {
   $("#results").innerHTML = (list.length > 1 ? `<p class="muted small">${list.length} résultat(s) — choisis la bonne version :</p>` : "") +
     list.map((c) => {
       const s = sets.get(c.s), owned = store.items.filter((i) => i.id === c.id).reduce((a, i) => a + i.qty, 0);
-      return `<div class="result" data-id="${c.id}">
-        <img loading="lazy" alt="" src="${IMG(c.id)}">
+      return `<div class="result" data-id="${c.id}" role="button" tabindex="0">
+        ${cardThumb(c, { width: 56 })}
         <div class="grow"><div class="name">${esc(c.name)}</div>
-          <div class="muted small">${esc(c.n)} · ${esc(c.r)} · ${esc(GAME[c.g])}</div>
-          <div class="muted small">${esc(s?.name ?? "")}${owned ? ` · <b>${owned} possédée(s)</b>` : ""}</div></div>
+          <div class="sub">${esc(c.n)} · ${esc(c.r)} · ${esc(GAME[c.g])}</div>
+          <div class="sub">${esc(s?.name ?? "")}${owned ? ` · <b>${owned} possédée(s)</b>` : ""}</div></div>
         <div class="price">${money(marketEUR(c.id))}</div></div>`;
     }).join("");
 }
 
 // ---------- Fiche carte (ajout / édition) ----------
 let scanBlob = null;
+const ICON_X = `<svg class="i" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>`;
 async function openSheet({ id, uid: u }) {
   const existing = u ? store.items.find((i) => i.uid === u) : null;
   const it = existing ?? { id, qty: 1, cond: "Near Mint", lang: "EN", buy: "", buyDate: today(), manual: "", note: "" };
   const c = byId.get(it.id), s = sets.get(c?.s), v = prices.p[it.id] || [];
   const unit = unitEUR(it), own = it.photo ? await photoUrl(it.uid) : null;
-  const plv = existing && it.buy !== "" && it.buy != null ? ((unit || 0) - it.buy) * it.qty : null;
+  const hasBuy = it.buy !== "" && it.buy != null;
+  const plv = existing && hasBuy ? ((unit || 0) - it.buy) * it.qty : null;
   const opt = (arr, cur) => arr.map((x) => `<option ${x === cur ? "selected" : ""}>${x}</option>`).join("");
 
   $("#sheet-body").innerHTML = `
-    <div class="sheet-head"><div><h2 style="margin:0">${esc(c?.name ?? "Carte")}</h2>
+    <div class="sheet-head"><div><h2>${esc(c?.name ?? "Carte")}</h2>
       <div class="muted small">${esc(c?.n)} · ${esc(c?.r)} · ${esc(GAME[c?.g])}<br>${esc(s?.name ?? "")}${s?.code ? ` (${esc(s.code)})` : ""}</div></div>
-      <button class="close" data-close aria-label="Fermer">×</button></div>
-    <img class="detail-img" id="d-img" alt="" src="${own ?? IMG(it.id, true)}">
-    ${own ? `<div class="img-switch"><button class="chip" data-img="off">Illustration officielle</button><button class="chip" data-img="own">Ma photo</button></div>` : ""}
-    <div class="stats">
-      <div class="stat"><b>${money(unit)}</b><span>${it.manual !== "" && it.manual != null ? "Prix manuel" : "Prix marché"}</span></div>
-      <div class="stat"><b>${money(v[1] != null ? v[1] * rate() : null)}</b><span>Plus bas</span></div>
-      <div class="stat"><b>${existing ? money((unit || 0) * it.qty) : money(v[2] != null ? v[2] * rate() : null)}</b><span>${existing ? `Total ×${it.qty}` : "Médian"}</span></div>
+      <button class="close" data-close aria-label="Fermer">${ICON_X}</button></div>
+    ${cardThumb(c, { src: own ?? IMG(it.id, true), qty: it.qty, glow: true, cls: "detail-thumb" })}
+    ${own ? `<div class="chips img-switch"><button class="chip" data-img="off">Illustration officielle</button><button class="chip on" data-img="own">Ma photo</button></div>` : ""}
+    <div class="stats3">
+      ${statTile(it.manual !== "" && it.manual != null ? "Prix manuel" : "Prix marché", money(unit), { display: false, hint: trendText(change(it)?.rel) })}
+      ${statTile("Plus bas", money(v[1] != null ? v[1] * rate() : null), { display: false })}
+      ${existing ? statTile(`Total ×${it.qty}`, money((unit || 0) * it.qty), { display: false }) : statTile("Médian", money(v[2] != null ? v[2] * rate() : null), { display: false })}
     </div>
-    ${plv != null ? `<div class="row small"><span class="muted">Plus-value</span><b class="${signCls(plv)}">${plv >= 0 ? "+" : ""}${money(plv)} (${pct(plv / (it.buy * it.qty))})</b></div>` : ""}
-    <div class="chart-wrap" style="height:150px;margin-top:8px"><canvas id="chart-card"></canvas></div>
+    ${plv != null ? `<div class="pl-line"><span class="muted">Plus-value</span><b class="${plv >= 0 ? "gain" : "loss"}">${plv >= 0 ? "+" : "−"}${money(Math.abs(plv))} ${trend(plv / (it.buy * it.qty), "sm")}</b></div>` : ""}
+    <div class="chart-readout" id="card-readout"></div>
+    <div class="chart" id="chart-card"></div>
+    <div class="chart-axis" id="axis-card"></div>
     <p class="muted small" id="card-chart-empty" hidden>Historique en cours de constitution.</p>
     <form class="form" id="item-form">
       <label class="field">Quantité<input name="qty" type="number" min="1" step="1" value="${it.qty}" required></label>
@@ -261,8 +294,8 @@ async function openSheet({ id, uid: u }) {
       <label class="field">Prix manuel (€)<input name="manual" type="number" min="0" step="0.01" inputmode="decimal" placeholder="ex. Cardmarket" value="${it.manual ?? ""}"></label>
       <label class="field full">Notes<textarea name="note" rows="2">${esc(it.note)}</textarea></label>
       <label class="field full">Ma photo de la carte<input name="photo" type="file" accept="image/*"></label>
-      ${!existing && scanBlob ? `<label class="field full" style="flex-direction:row;display:flex;gap:8px;align-items:center"><input type="checkbox" name="useScan" checked> Utiliser la photo scannée</label>` : ""}
-      ${existing && it.photo ? `<label class="field full" style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="delPhoto"> Supprimer ma photo</label>` : ""}
+      ${!existing && scanBlob ? `<label class="field full check"><input type="checkbox" name="useScan" checked> Utiliser la photo scannée</label>` : ""}
+      ${existing && it.photo ? `<label class="field full check"><input type="checkbox" name="delPhoto"> Supprimer ma photo</label>` : ""}
     </form>
     <div class="actions">
       ${existing ? `<button class="btn danger" id="del">Supprimer</button>` : ""}
@@ -272,7 +305,10 @@ async function openSheet({ id, uid: u }) {
     </div>`;
   $("#sheet").showModal();
 
-  $$("[data-img]").forEach((b) => b.onclick = () => ($("#d-img").src = b.dataset.img === "own" ? own : IMG(it.id, true)));
+  $$("[data-img]").forEach((b) => b.onclick = () => {
+    $(".detail-thumb img").src = b.dataset.img === "own" ? own : IMG(it.id, true);
+    $$("[data-img]").forEach((x) => x.classList.toggle("on", x === b));
+  });
   $("#save").onclick = () => saveItem(existing, it);
   if (existing) $("#del").onclick = async () => {
     if (!confirm("Supprimer cette carte de la collection ?")) return;
@@ -281,10 +317,16 @@ async function openSheet({ id, uid: u }) {
     save(); $("#sheet").close(); renderCollection(); toast("Carte supprimée");
   };
   await loadServerHist(fromDate());
-  const pts = cardPoints(it.id);
-  const ok = $("#sheet").open && lineChart("card", $("#chart-card"), pts);
-  if ($("#chart-card")) { $("#chart-card").parentElement.hidden = !ok; $("#card-chart-empty").hidden = !!ok; }
+  if (!$("#sheet").open || !$("#chart-card")) return;
+  const ok = priceChart("card", $("#chart-card"), cardPoints(it.id), { grid: true, ref: hasBuy ? +it.buy : null, axis: $("#axis-card"), readout: $("#card-readout") });
+  $("#card-chart-empty").hidden = ok;
 }
+function trendText(rel) {
+  if (rel == null || !isFinite(rel)) return "";
+  const v = rel * 100; if (Math.abs(v) < 0.05) return "— stable";
+  return `${v > 0 ? "▲ +" : "▼ −"}${Math.abs(v).toLocaleString("fr-FR", { maximumFractionDigits: 1 })} % (${store.settings.period ? PERIOD_LABEL[store.settings.period] : "total"})`;
+}
+const PERIOD_LABEL = { 30: "1M", 90: "3M", 180: "6M", 365: "1A" };
 
 async function resizeImage(blob, max = 900) {
   const bmp = await createImageBitmap(blob);
@@ -406,7 +448,7 @@ function exportCSV() {
 const TITLES = { collection: "Collection", add: "Ajouter une carte", settings: "Réglages" };
 function go(v) {
   $$(".view").forEach((s) => s.classList.toggle("active", s.id === "view-" + v));
-  $$(".tabs button").forEach((b) => b.classList.toggle("on", b.dataset.goto === v));
+  $$(".tabs .tab").forEach((b) => b.classList.toggle("on", b.dataset.goto === v));
   $("#title").textContent = TITLES[v];
   if (v === "add") setTimeout(() => $("#q").focus(), 50);
   if (v === "collection") renderCollection();
@@ -415,18 +457,20 @@ function go(v) {
 let toastT;
 function toast(m) { const t = $("#toast"); t.textContent = m; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => (t.hidden = true), 2200); }
 
+document.addEventListener("keydown", (e) => { if ((e.key === "Enter" || e.key === " ") && e.target.matches(".tile, .result")) { e.preventDefault(); e.target.click(); } });
 document.addEventListener("click", (e) => {
   const g = e.target.closest("[data-goto]"); if (g) return go(g.dataset.goto);
   const tile = e.target.closest(".tile, .mover"); if (tile) return openSheet({ uid: tile.dataset.uid });
   const r = e.target.closest(".result"); if (r) return openSheet({ id: +r.dataset.id });
   if (e.target.closest("[data-close]") || e.target === $("#sheet")) $("#sheet").close();
 });
-$("#sheet").addEventListener("close", () => charts.card?.destroy());
+$("#sheet").addEventListener("close", () => delete charts.card);
 $("#search-form").onsubmit = (e) => { e.preventDefault(); scanBlob = null; $("#scan-preview").innerHTML = ""; $("#scan-status").textContent = ""; renderResults(search($("#q").value)); };
 $("#scan-input").onchange = (e) => { const f = e.target.files[0]; e.target.value = ""; if (f) scan(f); };
-["#filter", "#sort", "#game-filter"].forEach((s) => $(s).addEventListener("input", renderGrid));
+["#filter", "#sort"].forEach((s) => $(s).addEventListener("input", renderGrid));
+$("#game-filter").onclick = (e) => { const b = e.target.closest(".chip"); if (!b) return; $$("#game-filter .chip").forEach((x) => { x.classList.toggle("on", x === b); x.setAttribute("aria-pressed", x === b); }); renderGrid(); };
 $("#periods").onclick = async (e) => {
-  const b = e.target.closest("button"); if (!b) return;
+  const b = e.target.closest(".chip"); if (!b) return;
   store.settings.period = +b.dataset.p; save();
   await loadServerHist(fromDate()); renderCollection();
 };

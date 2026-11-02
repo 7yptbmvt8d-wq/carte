@@ -1,4 +1,4 @@
-# Ma Collection DBS
+# KI·DEX
 
 Application web installable (PWA) pour gérer une collection de cartes **Dragon Ball Super Card Game** (Fusion World et Masters).
 

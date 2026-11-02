@@ -1,5 +1,5 @@
 // Service worker : app utilisable hors connexion (collection + dernières données téléchargées).
-const V = "dbcol-v1";
+const V = "dbcol-v2";
 const SHELL = ["./", "index.html", "style.css", "app.js", "manifest.webmanifest", "icons/icon.svg", "icons/icon-192.png"];
 
 self.addEventListener("install", (e) => { e.waitUntil(caches.open(V).then((c) => c.addAll(SHELL))); self.skipWaiting(); });
@@ -24,6 +24,6 @@ self.addEventListener("fetch", (e) => {
   if (e.request.method !== "GET") return;
   if (u.hostname === "tcgplayer-cdn.tcgplayer.com") return e.respondWith(cacheFirst(e.request, "dbcol-img"));
   if (u.pathname.includes("/data/history/") && !u.pathname.endsWith("index.json")) return e.respondWith(cacheFirst(e.request, V));
-  if (u.hostname === "cdn.jsdelivr.net" && u.pathname.includes("chart.js")) return e.respondWith(cacheFirst(e.request, V));
+  if (u.hostname === "fonts.googleapis.com" || u.hostname === "fonts.gstatic.com") return e.respondWith(cacheFirst(e.request, V));
   if (u.origin === location.origin) return e.respondWith(networkFirst(e.request));
 });
