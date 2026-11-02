@@ -490,8 +490,9 @@ $("#reset").onclick = () => { if (confirm("Effacer toute la collection de cet ap
   renderCollection();
   await loadServerHist(fromDate()); renderCollection();
 })();
+let swReg = null;
 // Mises à jour : vérification à chaque retour dans l'app, rechargement automatique quand une nouvelle version est prête
-const APP_VERSION = "4 (02/11/2026)";
+const APP_VERSION = "5 (02/11/2026)";
 $("#app-version").textContent = `Version de l'app : ${APP_VERSION}`;
 if ("serviceWorker" in navigator) {
   const hadController = !!navigator.serviceWorker.controller;
@@ -501,8 +502,42 @@ if ("serviceWorker" in navigator) {
     reloading = true; location.reload();
   });
   navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then((reg) => {
+    swReg = reg;
     const check = () => reg.update().catch(() => {});
     document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") check(); });
     setInterval(check, 30 * 60e3);
   }).catch(() => {});
 }
+
+// ---------- Tirer vers le bas pour actualiser ----------
+(() => {
+  const el = $("#ptr"), THRESHOLD = 80, MAX = 130;
+  let y0 = null, dy = 0, busy = false;
+  const set = (d) => {
+    const t = Math.min(d, MAX) * 0.6;
+    el.style.transform = `translateY(${t - 70 + 70 * Math.min(1, d / THRESHOLD)}px) rotate(${d * 2.5}deg)`;
+    el.style.opacity = Math.min(1, d / 40);
+    el.classList.toggle("ready", d >= THRESHOLD);
+  };
+  const reset = () => { el.classList.add("anim"); el.style.transform = ""; el.style.opacity = ""; el.classList.remove("ready", "spin"); setTimeout(() => el.classList.remove("anim"), 260); };
+  addEventListener("touchstart", (e) => {
+    if (busy || $("#sheet").open || e.touches.length !== 1 || scrollY > 0) { y0 = null; return; }
+    y0 = e.touches[0].clientY; dy = 0; el.classList.remove("anim");
+  }, { passive: true });
+  addEventListener("touchmove", (e) => {
+    if (y0 == null) return;
+    dy = e.touches[0].clientY - y0;
+    if (dy <= 0 || scrollY > 0) { if (dy < 0) y0 = null; set(0); return; }
+    set(dy);
+  }, { passive: true });
+  addEventListener("touchend", async () => {
+    if (y0 == null) return;
+    y0 = null;
+    if (dy < THRESHOLD) return reset();
+    busy = true;
+    el.classList.add("anim", "spin", "ready"); el.style.transform = "translateY(0)"; el.style.opacity = 1;
+    try { await swReg?.update(); } catch {}
+    setTimeout(() => location.reload(), 300);
+  });
+  addEventListener("touchcancel", () => { y0 = null; reset(); });
+})();
