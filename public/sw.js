@@ -1,17 +1,18 @@
 // Service worker : app utilisable hors connexion (collection + dernières données téléchargées).
-const V = "dbcol-v2";
-const SHELL = ["./", "index.html", "style.css", "app.js", "manifest.webmanifest", "icons/icon.svg", "icons/icon-192.png"];
+const V = "dbcol-v4";
+const SHELL = ["./", "index.html", "style.css?v=4", "app.js?v=4", "manifest.webmanifest", "icons/icon.svg", "icons/icon-180.png"];
 
-self.addEventListener("install", (e) => { e.waitUntil(caches.open(V).then((c) => c.addAll(SHELL))); self.skipWaiting(); });
+self.addEventListener("install", (e) => { e.waitUntil(caches.open(V).then((c) => c.addAll(SHELL.map((u) => new Request(u, { cache: "reload" }))))); self.skipWaiting(); });
 self.addEventListener("activate", (e) => {
   e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== V && k !== "dbcol-img").map((k) => caches.delete(k)))));
   self.clients.claim();
 });
 
+// Réseau d'abord, en forçant la revalidation (ignore le cache HTTP de 10 min de GitHub Pages)
 const networkFirst = async (req, cache = V) => {
   const c = await caches.open(cache);
-  try { const r = await fetch(req); if (r.ok || r.type === "opaque") c.put(req, r.clone()); return r; }
-  catch { return (await c.match(req)) || Response.error(); }
+  try { const r = await fetch(req.url, { cache: "no-cache", credentials: "same-origin" }); if (r.ok) c.put(req, r.clone()); return r; }
+  catch { return (await c.match(req, { ignoreSearch: req.mode === "navigate" })) || (await c.match("./")) || Response.error(); }
 };
 const cacheFirst = async (req, cache) => {
   const c = await caches.open(cache), hit = await c.match(req);

@@ -22,6 +22,10 @@
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html, body { margin: 0; }
+html { background: var(--bg); -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+html.modal-open, html.modal-open body { overflow: hidden; }
+button, .chip, .tab, .fab, .tile, .result, .mover, .scan, .btn { touch-action: manipulation; -webkit-user-select: none; user-select: none; }
+img { -webkit-touch-callout: none; }
 body {
   background: var(--bg); color: var(--text);
   font: 400 var(--fs-body)/1.4 var(--f-body);
@@ -40,11 +44,11 @@ svg.i { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-widt
 .top {
   position: sticky; top: 0; z-index: 5; background: var(--bg);
   display: flex; align-items: baseline; justify-content: space-between; gap: var(--s-sm);
-  padding: calc(var(--s-md) + env(safe-area-inset-top)) var(--gutter) var(--s-md);
+  padding: calc(var(--s-md) + env(safe-area-inset-top)) calc(var(--gutter) + env(safe-area-inset-right)) var(--s-md) calc(var(--gutter) + env(safe-area-inset-left));
 }
 .top h1 { font-family: var(--f-display); font-size: var(--fs-title); }
 .top .muted { font-size: var(--fs-xs); }
-main { max-width: 980px; margin: 0 auto; padding: 0 var(--gutter); }
+main { max-width: 980px; margin: 0 auto; padding: 0 calc(var(--gutter) + env(safe-area-inset-right)) 0 calc(var(--gutter) + env(safe-area-inset-left)); }
 .view { display: none; } .view.active { display: block; }
 
 /* Blocs */
@@ -118,7 +122,7 @@ main { max-width: 980px; margin: 0 auto; padding: 0 var(--gutter); }
 .field-wrap svg.i { position: absolute; left: 12px; width: 18px; height: 18px; color: var(--muted); pointer-events: none; }
 .field-wrap input { padding-left: 38px; width: 100%; }
 input, select, textarea {
-  font: inherit; font-size: var(--fs-body); color: var(--text); background: var(--surface);
+  font: inherit; font-size: 16px; color: var(--text); background: var(--surface);
   border: 1px solid var(--border); border-radius: var(--r-field); padding: 0 12px; min-height: var(--touch); min-width: 0;
 }
 textarea { width: 100%; resize: vertical; padding: 10px 12px; }
@@ -167,7 +171,9 @@ input[type="checkbox"] { min-height: 0; width: 18px; height: 18px; accent-color:
 
 /* Fiche carte (modal) */
 dialog.sheet {
-  border: 0; padding: 0; width: min(560px, 100%); max-width: 100%; max-height: 92vh;
+  border: 0; padding: 0; width: min(560px, 100%); max-width: 100%;
+  max-height: calc(100vh - env(safe-area-inset-top) - 12px); max-height: calc(100dvh - env(safe-area-inset-top) - 12px);
+  overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
   border-radius: var(--r-hero) var(--r-hero) 0 0; margin: auto auto 0; background: var(--surface); color: var(--text);
 }
 @media (min-width: 700px) { dialog.sheet { border-radius: var(--r-hero); margin: auto; } }
@@ -192,9 +198,9 @@ dialog.sheet::backdrop { background: rgba(5, 8, 25, .7); }
 /* Tab bar */
 .tabs {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; display: flex; justify-content: space-around; align-items: flex-start;
-  background: var(--nav-bg); border-top: 1px solid var(--line); padding: var(--s-sm) 0 max(env(safe-area-inset-bottom), 8px);
+  background: var(--nav-bg); border-top: 1px solid var(--line); padding: var(--s-sm) env(safe-area-inset-right) max(env(safe-area-inset-bottom), 8px) env(safe-area-inset-left);
 }
-.tab { min-width: 64px; min-height: var(--touch); border: 0; background: none; color: var(--muted); display: grid; justify-items: center; gap: 2px; cursor: pointer; font-weight: 600; font-size: var(--fs-xxs); }
+.tab { min-width: 88px; min-height: var(--touch); border: 0; background: none; color: var(--muted); display: grid; justify-items: center; gap: 2px; cursor: pointer; font-weight: 600; font-size: var(--fs-xxs); }
 .tab.on { color: var(--accent); }
 .fab {
   width: 56px; height: 56px; border-radius: 28px; margin-top: -24px; border: 6px solid var(--bg);

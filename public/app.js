@@ -303,7 +303,7 @@ async function openSheet({ id, uid: u }) {
       <a class="btn" href="https://www.cardmarket.com/fr/DragonBallSuper/Products/Search?searchString=${encodeURIComponent(c?.n ?? "")}" target="_blank" rel="noopener">Cardmarket ↗</a>
       <button class="btn primary" id="save">${existing ? "Enregistrer" : "Ajouter à la collection"}</button>
     </div>`;
-  $("#sheet").showModal();
+  $("#sheet").showModal(); document.documentElement.classList.add("modal-open");
 
   $$("[data-img]").forEach((b) => b.onclick = () => {
     $(".detail-thumb img").src = b.dataset.img === "own" ? own : IMG(it.id, true);
@@ -464,7 +464,7 @@ document.addEventListener("click", (e) => {
   const r = e.target.closest(".result"); if (r) return openSheet({ id: +r.dataset.id });
   if (e.target.closest("[data-close]") || e.target === $("#sheet")) $("#sheet").close();
 });
-$("#sheet").addEventListener("close", () => delete charts.card);
+$("#sheet").addEventListener("close", () => { delete charts.card; document.documentElement.classList.remove("modal-open"); });
 $("#search-form").onsubmit = (e) => { e.preventDefault(); scanBlob = null; $("#scan-preview").innerHTML = ""; $("#scan-status").textContent = ""; renderResults(search($("#q").value)); };
 $("#scan-input").onchange = (e) => { const f = e.target.files[0]; e.target.value = ""; if (f) scan(f); };
 ["#filter", "#sort"].forEach((s) => $(s).addEventListener("input", renderGrid));
@@ -490,4 +490,19 @@ $("#reset").onclick = () => { if (confirm("Effacer toute la collection de cet ap
   renderCollection();
   await loadServerHist(fromDate()); renderCollection();
 })();
-if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+// Mises à jour : vérification à chaque retour dans l'app, rechargement automatique quand une nouvelle version est prête
+const APP_VERSION = "4 (02/11/2026)";
+$("#app-version").textContent = `Version de l'app : ${APP_VERSION}`;
+if ("serviceWorker" in navigator) {
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloading = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (!hadController || reloading || $("#sheet").open) return;
+    reloading = true; location.reload();
+  });
+  navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then((reg) => {
+    const check = () => reg.update().catch(() => {});
+    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") check(); });
+    setInterval(check, 30 * 60e3);
+  }).catch(() => {});
+}
