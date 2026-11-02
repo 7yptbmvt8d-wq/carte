@@ -1,0 +1,11 @@
+{
+  "name": "carte",
+  "private": true,
+  "description": "Collection de cartes Dragon Ball Super (PWA)",
+  "type": "module",
+  "scripts": {
+    "data": "node scripts/build-data.mjs",
+    "start": "npm run data && python3 -m http.server 8080 --directory public",
+    "icons": "node scripts/icons.mjs"
+  }
+}

@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Ma Collection DBS</title>
+  <meta name="description" content="Collection de cartes Dragon Ball Super : enregistrement par numéro, valeur de marché et suivi.">
+  <meta name="theme-color" content="#14161c">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <h1 id="title">Collection</h1>
+    <span id="updated" class="muted small"></span>
+  </header>
+
+  <main>
+    <!-- COLLECTION -->
+    <section id="view-collection" class="view active">
+      <div class="summary card-box">
+        <div class="muted small">Valeur de la collection</div>
+        <div class="total" id="total">—</div>
+        <div class="row small">
+          <span id="delta"></span>
+          <span class="muted" id="counts"></span>
+        </div>
+        <div class="row small" id="pl"></div>
+        <div class="periods" id="periods">
+          <button data-p="30">1M</button><button data-p="90">3M</button><button data-p="180" class="on">6M</button><button data-p="365">1A</button><button data-p="0">Tout</button>
+        </div>
+        <div class="chart-wrap"><canvas id="chart-total"></canvas></div>
+        <p class="muted small empty-chart" id="chart-empty" hidden>L'historique se construit au fil des mises à jour (quotidiennes) des prix.</p>
+      </div>
+
+      <div class="movers" id="movers"></div>
+
+      <div class="toolbar">
+        <input id="filter" type="search" placeholder="Filtrer (nom, numéro…)" autocomplete="off">
+        <select id="sort">
+          <option value="value">Valeur ↓</option>
+          <option value="added">Ajout récent</option>
+          <option value="number">Numéro</option>
+          <option value="change">Variation ↓</option>
+          <option value="pl">Plus-value ↓</option>
+        </select>
+        <select id="game-filter">
+          <option value="">Tous</option>
+          <option value="fw">Fusion World</option>
+          <option value="masters">Masters</option>
+        </select>
+      </div>
+      <div id="grid" class="grid"></div>
+      <div id="empty" class="empty" hidden>
+        <p>Aucune carte pour l'instant.</p>
+        <button class="btn primary" data-goto="add">Ajouter une carte</button>
+      </div>
+    </section>
+
+    <!-- AJOUT -->
+    <section id="view-add" class="view">
+      <form id="search-form" class="search">
+        <input id="q" type="search" inputmode="text" autocapitalize="characters" placeholder="Numéro (FB01-001, BT1-031, P-123…) ou nom" autocomplete="off">
+        <button class="btn primary" type="submit">Chercher</button>
+      </form>
+      <label class="btn scan">
+        📷 Scanner une carte
+        <input id="scan-input" type="file" accept="image/*" capture="environment" hidden>
+      </label>
+      <div id="scan-status" class="muted small"></div>
+      <div id="scan-preview"></div>
+      <div id="results" class="results"></div>
+    </section>
+
+    <!-- RÉGLAGES -->
+    <section id="view-settings" class="view">
+      <div class="card-box">
+        <h2>Affichage</h2>
+        <label class="field">Devise
+          <select id="currency"><option value="EUR">Euro (€)</option><option value="USD">Dollar ($)</option></select>
+        </label>
+      </div>
+      <div class="card-box">
+        <h2>Sauvegarde</h2>
+        <p class="muted small">La collection est stockée uniquement sur cet appareil. Exporte-la régulièrement.</p>
+        <div class="row gap">
+          <button class="btn" id="export">Exporter (JSON)</button>
+          <label class="btn">Importer<input type="file" id="import" accept="application/json" hidden></label>
+          <button class="btn" id="export-csv">Exporter (CSV)</button>
+        </div>
+      </div>
+      <div class="card-box">
+        <h2>Données</h2>
+        <p class="muted small" id="data-info"></p>
+        <p class="muted small">Cartes, illustrations et prix : TCGplayer (marché US, en USD) via tcgcsv.com, mis à jour chaque jour. Conversion en € au taux BCE du jour. Pour un prix Cardmarket, saisis un prix manuel sur la fiche de la carte.</p>
+        <button class="btn danger" id="reset">Effacer la collection</button>
+      </div>
+    </section>
+  </main>
+
+  <nav class="tabs">
+    <button data-goto="collection" class="on"><span>🗂️</span>Collection</button>
+    <button data-goto="add"><span>➕</span>Ajouter</button>
+    <button data-goto="settings"><span>⚙️</span>Réglages</button>
+  </nav>
+
+  <dialog id="sheet"><div id="sheet-body"></div></dialog>
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
