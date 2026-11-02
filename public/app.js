@@ -68,7 +68,8 @@ function completion() {
   const owned = new Map();
   for (const it of store.items) {
     const c = byId.get(it.id); if (!c || c.r === "None") continue;
-    const e = exOf(c); if (!owned.has(e)) owned.set(e, { nums: new Set(), ids: new Set(), best: null, bestV: -1 });
+    const e = exOf(c); if (exInfo.get(e)?.main !== c.s) continue; // hors booster/display : non compté
+    if (!owned.has(e)) owned.set(e, { nums: new Set(), ids: new Set(), best: null, bestV: -1 });
     const o = owned.get(e), v = unitEUR(it) ?? 0;
     o.nums.add(norm(c.n)); o.ids.add(c.id);
     if (v > o.bestV) { o.bestV = v; o.best = c; }
@@ -82,15 +83,23 @@ async function loadData() {
   const [c, p] = await Promise.all([fetch("data/cards.json").then((r) => r.json()), fetch("data/prices.json").then((r) => r.json())]);
   cards = c.cards; prices = p;
   for (const s of c.sets) sets.set(s.id, s);
+  // Complétion : seules les cartes de l'extension principale (boosters / displays) comptent.
+  // Exclus : avant-premières (pre-release), promos, tournois, draft box, marqueurs d'énergie.
   for (const x of cards) {
     byId.set(x.id, x);
     const k = norm(x.n); if (!byKey.has(k)) byKey.set(k, []); byKey.get(k).push(x);
-    if (x.r === "None") continue; // marqueurs d'énergie : hors complétion
+    if (x.r === "None") continue;
     const e = exOf(x);
     if (!exInfo.has(e)) exInfo.set(e, { key: e, code: x.n.split("-")[0].toUpperCase(), g: x.g, nums: new Set(), byNum: new Map(), groups: new Map(), count: 0, ord: numKey(x) });
-    const inf = exInfo.get(e); inf.count++; inf.nums.add(k); if (!inf.byNum.has(k)) inf.byNum.set(k, []); inf.byNum.get(k).push(x); inf.groups.set(x.s, (inf.groups.get(x.s) || 0) + 1);
+    const inf = exInfo.get(e); inf.groups.set(x.s, (inf.groups.get(x.s) || 0) + 1);
   }
   for (const inf of exInfo.values()) { inf.main = [...inf.groups].sort((a, b) => b[1] - a[1])[0][0]; inf.name = sets.get(inf.main)?.name ?? ""; }
+  for (const x of cards) {
+    if (x.r === "None") continue;
+    const inf = exInfo.get(exOf(x)); if (x.s !== inf.main) continue;
+    const k = norm(x.n);
+    inf.count++; inf.nums.add(k); if (!inf.byNum.has(k)) inf.byNum.set(k, []); inf.byNum.get(k).push(x);
+  }
   snapshot();
 }
 
@@ -294,7 +303,7 @@ function renderGrid() {
   let lastEx = null;
   $("#grid").innerHTML = list.map(({ it, c, v }) => {
     let head = "";
-    if (comp && c && c.r !== "None" && exOf(c) !== lastEx) {
+    if (comp && c && c.r !== "None" && exOf(c) !== lastEx && comp.has(exOf(c))) {
       lastEx = exOf(c); const x = comp.get(lastEx);
       if (x) head = `<div class="grid-head">${exTile(x, { compact: true })}</div>`;
     }
@@ -383,7 +392,7 @@ function openSet(key, show = "all", mode = "base") {
         <div class="st-p">${r.have ? `<span class="gain">✓ possédée</span>` : money(r.price)}</div></div>`).join("") || `<p class="muted small">Aucune carte.</p>`}</div>
     <p class="muted small" style="margin-top:12px">${mode === "base"
       ? "Une tuile par numéro (version de base, ou ta version si tu l'as). ◆ indique le nombre de versions (alt art, SPR, promo…), et combien tu en as. Coût pour compléter : prix le plus bas parmi les versions de chaque numéro manquant."
-      : "Chaque version est affichée séparément, juste après sa version de base (complétion « master set »)."} Touche une carte manquante pour l'ajouter.</p>`;
+      : "Chaque version disponible en booster/display est affichée séparément, juste après sa version de base (complétion « master set »)."} Les avant-premières, promos et cartes de tournoi ne sont pas comptées. Touche une carte manquante pour l'ajouter.</p>`;
   if (!$("#sheet").open) { $("#sheet").showModal(); document.documentElement.classList.add("modal-open"); }
   $("#sheet").scrollTop = 0;
   $$("#set-chips .chip").forEach((b) => b.onclick = () => openSet(key, b.dataset.show, mode));
@@ -720,7 +729,7 @@ $("#reset").onclick = () => { if (confirm("Effacer toute la collection de cet ap
 })();
 let swReg = null;
 // Mises à jour : vérification à chaque retour dans l'app, rechargement automatique quand une nouvelle version est prête
-const APP_VERSION = "9 (02/11/2026)";
+const APP_VERSION = "10 (02/11/2026)";
 $("#app-version").textContent = `Version de l'app : ${APP_VERSION}`;
 if ("serviceWorker" in navigator) {
   const hadController = !!navigator.serviceWorker.controller;
