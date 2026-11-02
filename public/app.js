@@ -52,6 +52,28 @@ function norm(s) {
   return m ? `${m[1]}${m[2] ? +m[2] : ""}-${m[3]}${+m[4]}` : s;
 }
 
+// Extension d'une carte (préfixe du numéro : FB01, BT1, P…) et clé de tri par numéro
+const exInfo = new Map();
+const exOf = (c) => `${c.g}|${norm(c.n).split("-")[0]}`;
+function numKey(c) {
+  const k = norm(c?.n || ""), m = k.match(/^([A-Z]+)(\d*)-([A-Z]*)(\d+)$/);
+  return m ? [c.g === "fw" ? 0 : 1, m[1], +(m[2] || 0), m[3], +m[4], c.id] : [2, k, 0, "", 0, c?.id || 0];
+}
+function cmpKey(a, b) {
+  for (let i = 0; i < a.length; i++) { if (a[i] === b[i]) continue; return typeof a[i] === "number" ? a[i] - b[i] : String(a[i]).localeCompare(String(b[i])); }
+  return 0;
+}
+function completion() {
+  const owned = new Map();
+  for (const it of store.items) {
+    const c = byId.get(it.id); if (!c || c.r === "None") continue;
+    const e = exOf(c); if (!owned.has(e)) owned.set(e, new Set()); owned.get(e).add(norm(c.n));
+  }
+  return [...owned].map(([e, set]) => { const inf = exInfo.get(e); return inf && { ...inf, have: set.size, total: inf.nums.size, rate: set.size / inf.nums.size }; })
+    .filter(Boolean).sort((a, b) => cmpKey(a.ord, b.ord));
+}
+const pctInt = (r) => (r * 100).toLocaleString("fr-FR", { maximumFractionDigits: r < 0.1 ? 1 : 0 }) + " %";
+
 async function loadData() {
   const [c, p] = await Promise.all([fetch("data/cards.json").then((r) => r.json()), fetch("data/prices.json").then((r) => r.json())]);
   cards = c.cards; prices = p;
@@ -59,7 +81,12 @@ async function loadData() {
   for (const x of cards) {
     byId.set(x.id, x);
     const k = norm(x.n); if (!byKey.has(k)) byKey.set(k, []); byKey.get(k).push(x);
+    if (x.r === "None") continue; // marqueurs d'énergie : hors complétion
+    const e = exOf(x);
+    if (!exInfo.has(e)) exInfo.set(e, { key: e, code: x.n.split("-")[0].toUpperCase(), g: x.g, nums: new Set(), groups: new Map(), ord: numKey(x) });
+    const inf = exInfo.get(e); inf.nums.add(k); inf.groups.set(x.s, (inf.groups.get(x.s) || 0) + 1);
   }
+  for (const inf of exInfo.values()) inf.name = sets.get([...inf.groups].sort((a, b) => b[1] - a[1])[0][0])?.name ?? "";
   snapshot();
 }
 
@@ -207,30 +234,56 @@ async function renderCollection() {
   const mv = (arr) => arr.map(([it, c]) => { const cd = byId.get(it.id); return `<div class="mover" data-uid="${it.uid}">${cardThumb(cd, { width: 32, showRarity: false })}<div class="grow"><div class="nm">${esc(cd?.name ?? it.id)}</div>${trend(c.rel)}</div></div>`; }).join("") || `<div class="muted small">—</div>`;
   $("#movers").innerHTML = ch.length ? `<div class="block"><h3>Hausses</h3>${mv(up)}</div><div class="block"><h3>Baisses</h3>${mv(dn)}</div>` : "";
 
+  renderCompletion();
   renderGrid();
+}
+
+let complAll = false;
+function renderCompletion() {
+  const list = completion(), el = $("#completion");
+  el.hidden = !list.length; if (!list.length) return;
+  const full = list.filter((x) => x.have === x.total).length;
+  const shown = complAll ? list : [...list].sort((a, b) => b.rate - a.rate).slice(0, 5);
+  el.innerHTML = `<div class="compl-head"><h2 class="section">Complétion</h2><span class="muted small">${list.length} extension${list.length > 1 ? "s" : ""}${full ? ` · ${full} complète${full > 1 ? "s" : ""}` : ""}</span></div>
+    ${shown.map((x) => `<div class="compl-row" data-ex="${esc(x.code)}" role="button" tabindex="0">
+      <div class="nm">${esc(x.code)} <span>· ${esc(x.name)}</span></div>
+      <div class="ct"><b>${x.have}</b> / ${x.total} · ${pctInt(x.rate)}</div>
+      <div class="bar${x.have === x.total ? " full" : ""}"><span style="width:${(x.rate * 100).toFixed(1)}%"></span></div></div>`).join("")}
+    ${list.length > 5 ? `<button class="btn compl-more" id="compl-more">${complAll ? "Afficher les 5 plus avancées" : `Toutes les extensions (${list.length})`}</button>` : ""}
+    <p class="muted small" style="margin:8px 0 0">Numéros différents possédés (versions alternatives comptées une fois).</p>`;
+  const more = $("#compl-more"); if (more) more.onclick = () => { complAll = !complAll; renderCompletion(); };
 }
 
 function renderGrid() {
   const q = $("#filter").value.trim().toLowerCase(), g = $("#game-filter .chip.on")?.dataset.g ?? "", sort = $("#sort").value;
   let list = store.items.map((it) => ({ it, c: byId.get(it.id), v: unitEUR(it) }));
   if (g) list = list.filter((x) => x.c?.g === g);
-  if (q) list = list.filter((x) => `${x.c?.name} ${x.c?.n} ${sets.get(x.c?.s)?.name} ${x.c?.r} ${x.it.note ?? ""}`.toLowerCase().includes(q));
+  if (/^[a-z]+\d*-$/.test(q)) list = list.filter((x) => (x.c?.n || "").toLowerCase().startsWith(q));
+  else if (q) list = list.filter((x) => `${x.c?.name} ${x.c?.n} ${sets.get(x.c?.s)?.name} ${x.c?.r} ${x.it.note ?? ""}`.toLowerCase().includes(q));
   const plOf = (x) => (x.it.buy != null && x.it.buy !== "" ? ((x.v || 0) - x.it.buy) * x.it.qty : -Infinity);
   const sorters = {
     value: (a, b) => (b.v || 0) * b.it.qty - (a.v || 0) * a.it.qty,
     added: (a, b) => (b.it.added || "").localeCompare(a.it.added || ""),
-    number: (a, b) => (a.c?.n || "").localeCompare(b.c?.n || "", "fr", { numeric: true }),
+    number: (a, b) => cmpKey(numKey(a.c), numKey(b.c)),
     change: (a, b) => (change(b.it)?.rel ?? -Infinity) - (change(a.it)?.rel ?? -Infinity),
     pl: (a, b) => plOf(b) - plOf(a),
   };
   list.sort(sorters[sort]);
   $("#empty").hidden = store.items.length > 0;
-  $("#grid").innerHTML = list.map(({ it, c, v }) => `<div class="tile" data-uid="${it.uid}" role="button" tabindex="0">
+  const comp = sort === "number" ? new Map(completion().map((x) => [x.key, x])) : null;
+  let lastEx = null;
+  $("#grid").innerHTML = list.map(({ it, c, v }) => {
+    let head = "";
+    if (comp && c && c.r !== "None" && exOf(c) !== lastEx) {
+      lastEx = exOf(c); const x = comp.get(lastEx);
+      if (x) head = `<div class="grid-head"><div class="nm">${esc(x.code)} <span>· ${esc(x.name)}</span></div><div class="ct">${x.have} / ${x.total} · ${pctInt(x.rate)}</div><div class="bar${x.have === x.total ? " full" : ""}"><span style="width:${(x.rate * 100).toFixed(1)}%"></span></div></div>`;
+    }
+    return head + `<div class="tile" data-uid="${it.uid}" role="button" tabindex="0">
       ${cardThumb(c, { qty: it.qty })}
       <div class="t-name">${esc(c?.name ?? "Carte inconnue")}</div>
       <div class="t-meta">${esc(c?.n ?? "")} · ${esc(GAME[c?.g] ?? "")}</div>
       <div class="t-price"><b>${money(v)}</b>${trend(change(it)?.rel)}</div>
-    </div>`).join("");
+    </div>`; }).join("");
   for (const it of list.filter((x) => x.it.photo)) photoUrl(it.it.uid).then((u) => { const img = u && $(`#grid .tile[data-uid="${it.it.uid}"] img`); if (img) img.src = u; });
 }
 
@@ -457,9 +510,11 @@ function go(v) {
 let toastT;
 function toast(m) { const t = $("#toast"); t.textContent = m; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => (t.hidden = true), 2200); }
 
-document.addEventListener("keydown", (e) => { if ((e.key === "Enter" || e.key === " ") && e.target.matches(".tile, .result")) { e.preventDefault(); e.target.click(); } });
+document.addEventListener("keydown", (e) => { if ((e.key === "Enter" || e.key === " ") && e.target.matches(".tile, .result, .compl-row")) { e.preventDefault(); e.target.click(); } });
 document.addEventListener("click", (e) => {
   const g = e.target.closest("[data-goto]"); if (g) return go(g.dataset.goto);
+  const ex = e.target.closest(".compl-row");
+  if (ex) { $("#filter").value = ex.dataset.ex + "-"; $("#sort").value = "number"; renderGrid(); store.settings.sort = "number"; save(); $("#my-cards").scrollIntoView({ behavior: "smooth", block: "start" }); return; }
   const tile = e.target.closest(".tile, .mover"); if (tile) return openSheet({ uid: tile.dataset.uid });
   const r = e.target.closest(".result"); if (r) return openSheet({ id: +r.dataset.id });
   if (e.target.closest("[data-close]") || e.target === $("#sheet")) $("#sheet").close();
@@ -467,7 +522,9 @@ document.addEventListener("click", (e) => {
 $("#sheet").addEventListener("close", () => { delete charts.card; document.documentElement.classList.remove("modal-open"); });
 $("#search-form").onsubmit = (e) => { e.preventDefault(); scanBlob = null; $("#scan-preview").innerHTML = ""; $("#scan-status").textContent = ""; renderResults(search($("#q").value)); };
 $("#scan-input").onchange = (e) => { const f = e.target.files[0]; e.target.value = ""; if (f) scan(f); };
-["#filter", "#sort"].forEach((s) => $(s).addEventListener("input", renderGrid));
+$("#sort").value = store.settings.sort ?? "number";
+$("#sort").addEventListener("input", () => { store.settings.sort = $("#sort").value; save(); renderGrid(); });
+$("#filter").addEventListener("input", renderGrid);
 $("#game-filter").onclick = (e) => { const b = e.target.closest(".chip"); if (!b) return; $$("#game-filter .chip").forEach((x) => { x.classList.toggle("on", x === b); x.setAttribute("aria-pressed", x === b); }); renderGrid(); };
 $("#periods").onclick = async (e) => {
   const b = e.target.closest(".chip"); if (!b) return;
@@ -492,7 +549,7 @@ $("#reset").onclick = () => { if (confirm("Effacer toute la collection de cet ap
 })();
 let swReg = null;
 // Mises à jour : vérification à chaque retour dans l'app, rechargement automatique quand une nouvelle version est prête
-const APP_VERSION = "5 (02/11/2026)";
+const APP_VERSION = "6 (02/11/2026)";
 $("#app-version").textContent = `Version de l'app : ${APP_VERSION}`;
 if ("serviceWorker" in navigator) {
   const hadController = !!navigator.serviceWorker.controller;

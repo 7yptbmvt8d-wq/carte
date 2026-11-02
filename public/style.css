@@ -224,3 +224,23 @@ dialog.sheet::backdrop { background: rgba(5, 8, 25, .7); }
 .ptr.ready { background: var(--accent); color: var(--on-accent); border-color: var(--accent); box-shadow: 0 0 0 4px var(--bg); }
 .ptr.spin svg { animation: ptr-spin .8s linear infinite; }
 @keyframes ptr-spin { to { transform: rotate(360deg); } }
+
+/* Complétion par extension */
+.compl-head { display: flex; justify-content: space-between; align-items: baseline; gap: var(--s-sm); margin-bottom: var(--s-sm); }
+.compl-head .section { margin: 0; }
+.compl-row { display: grid; grid-template-columns: 1fr auto; gap: 2px var(--s-sm); padding: var(--s-sm) 0; cursor: pointer; border-top: 1px solid var(--line); min-height: var(--touch); }
+.compl-head + .compl-row { border-top: 0; }
+.compl-row .nm { font-size: var(--fs-sm); font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.compl-row .nm span { color: var(--muted); font-weight: 400; }
+.compl-row .ct { font-size: var(--fs-xs); color: var(--muted); text-align: right; white-space: nowrap; }
+.compl-row .ct b { color: var(--text); }
+.bar { grid-column: 1 / -1; height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
+.bar span { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
+.bar.full span { background: var(--gain); }
+.compl-more { margin-top: var(--s-sm); width: 100%; }
+.grid-head { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr auto; gap: var(--s-xs) var(--s-sm); padding-top: var(--s-sm); }
+.grid-head:first-child { padding-top: 0; }
+.grid-head .nm { font-family: var(--f-display); font-size: 16px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.grid-head .nm span { font-family: var(--f-body); font-size: var(--fs-sm); color: var(--muted); }
+.grid-head .ct { font-size: var(--fs-xs); color: var(--muted); align-self: center; }
+#my-cards { scroll-margin-top: calc(env(safe-area-inset-top) + 64px); }
