@@ -68,9 +68,12 @@ function completion() {
   const owned = new Map();
   for (const it of store.items) {
     const c = byId.get(it.id); if (!c || c.r === "None") continue;
-    const e = exOf(c); if (!owned.has(e)) owned.set(e, new Set()); owned.get(e).add(norm(c.n));
+    const e = exOf(c); if (!owned.has(e)) owned.set(e, { nums: new Set(), ids: new Set(), best: null, bestV: -1 });
+    const o = owned.get(e), v = unitEUR(it) ?? 0;
+    o.nums.add(norm(c.n)); o.ids.add(c.id);
+    if (v > o.bestV) { o.bestV = v; o.best = c; }
   }
-  return [...owned].map(([e, set]) => { const inf = exInfo.get(e); return inf && { ...inf, have: set.size, total: inf.nums.size, rate: set.size / inf.nums.size }; })
+  return [...owned].map(([e, o]) => { const inf = exInfo.get(e); return inf && { ...inf, have: o.nums.size, total: inf.nums.size, rate: o.nums.size / inf.nums.size, vHave: o.ids.size, vTotal: inf.count, best: o.best }; })
     .filter(Boolean).sort((a, b) => cmpKey(a.ord, b.ord));
 }
 const pctInt = (r) => (r * 100).toLocaleString("fr-FR", { maximumFractionDigits: r < 0.1 ? 1 : 0 }) + " %";
@@ -84,10 +87,10 @@ async function loadData() {
     const k = norm(x.n); if (!byKey.has(k)) byKey.set(k, []); byKey.get(k).push(x);
     if (x.r === "None") continue; // marqueurs d'énergie : hors complétion
     const e = exOf(x);
-    if (!exInfo.has(e)) exInfo.set(e, { key: e, code: x.n.split("-")[0].toUpperCase(), g: x.g, nums: new Set(), byNum: new Map(), groups: new Map(), ord: numKey(x) });
-    const inf = exInfo.get(e); inf.nums.add(k); if (!inf.byNum.has(k)) inf.byNum.set(k, []); inf.byNum.get(k).push(x); inf.groups.set(x.s, (inf.groups.get(x.s) || 0) + 1);
+    if (!exInfo.has(e)) exInfo.set(e, { key: e, code: x.n.split("-")[0].toUpperCase(), g: x.g, nums: new Set(), byNum: new Map(), groups: new Map(), count: 0, ord: numKey(x) });
+    const inf = exInfo.get(e); inf.count++; inf.nums.add(k); if (!inf.byNum.has(k)) inf.byNum.set(k, []); inf.byNum.get(k).push(x); inf.groups.set(x.s, (inf.groups.get(x.s) || 0) + 1);
   }
-  for (const inf of exInfo.values()) inf.name = sets.get([...inf.groups].sort((a, b) => b[1] - a[1])[0][0])?.name ?? "";
+  for (const inf of exInfo.values()) { inf.main = [...inf.groups].sort((a, b) => b[1] - a[1])[0][0]; inf.name = sets.get(inf.main)?.name ?? ""; }
   snapshot();
 }
 
@@ -265,12 +268,9 @@ function renderCompletion() {
   const full = list.filter((x) => x.have === x.total).length;
   const shown = complAll ? list : [...list].sort((a, b) => b.rate - a.rate).slice(0, 5);
   el.innerHTML = `<div class="compl-head"><h2 class="section">Complétion</h2><span class="muted small">${list.length} extension${list.length > 1 ? "s" : ""}${full ? ` · ${full} complète${full > 1 ? "s" : ""}` : ""}</span></div>
-    ${shown.map((x) => `<div class="compl-row" data-set="${esc(x.key)}" role="button" tabindex="0">
-      <div class="nm">${esc(x.code)} <span>· ${esc(x.name)}</span></div>
-      <div class="ct"><b>${x.have}</b> / ${x.total} · ${pctInt(x.rate)}</div>
-      <div class="bar${x.have === x.total ? " full" : ""}"><span style="width:${(x.rate * 100).toFixed(1)}%"></span></div></div>`).join("")}
+    <div class="ex-list">${shown.map((x) => exTile(x)).join("")}</div>
     ${list.length > 5 ? `<button class="btn compl-more" id="compl-more">${complAll ? "Afficher les 5 plus avancées" : `Toutes les extensions (${list.length})`}</button>` : ""}
-    <p class="muted small" style="margin:8px 0 0">Numéros différents possédés (versions alternatives comptées une fois). Touche une extension pour voir les cartes manquantes.</p>`;
+    <p class="muted small" style="margin:8px 0 0">% = numéros différents possédés. Touche une extension pour voir les cartes manquantes et les versions alternatives.</p>`;
   const more = $("#compl-more"); if (more) more.onclick = () => { complAll = !complAll; renderCompletion(); };
 }
 
@@ -296,7 +296,7 @@ function renderGrid() {
     let head = "";
     if (comp && c && c.r !== "None" && exOf(c) !== lastEx) {
       lastEx = exOf(c); const x = comp.get(lastEx);
-      if (x) head = `<div class="grid-head" data-set="${esc(x.key)}" role="button" tabindex="0"><div class="nm">${esc(x.code)} <span>· ${esc(x.name)}</span></div><div class="ct">${x.have} / ${x.total} · ${pctInt(x.rate)}</div><div class="bar${x.have === x.total ? " full" : ""}"><span style="width:${(x.rate * 100).toFixed(1)}%"></span></div></div>`;
+      if (x) head = `<div class="grid-head">${exTile(x, { compact: true })}</div>`;
     }
     return head + `<div class="tile" data-uid="${it.uid}" role="button" tabindex="0">
       ${cardThumb(c, { qty: it.qty })}
@@ -333,28 +333,42 @@ function renderResults(list, msg) {
 // ---------- Vue extension : possédées / manquantes ----------
 let sheetBack = null; // retour à la vue extension après ouverture d'une carte
 const basePrice = (cs) => { const v = cs.map((c) => marketEUR(c.id)).filter((x) => x != null); return v.length ? Math.min(...v) : null; };
-function openSet(key, show = "all") {
+function openSet(key, show = "all", mode = "base") {
   const inf = exInfo.get(key); if (!inf) return;
   const ownedIds = new Map(); // id -> qty
   for (const it of store.items) ownedIds.set(it.id, (ownedIds.get(it.id) || 0) + it.qty);
-  const rows = [...inf.byNum].map(([k, cs]) => {
-    cs = [...cs].sort((a, b) => /\(/.test(a.name) - /\(/.test(b.name) || a.id - b.id); // version de base d'abord
-    const own = cs.filter((c) => ownedIds.has(c.id));
-    return { k, card: own[0] ?? cs[0], have: own.reduce((a, c) => a + ownedIds.get(c.id), 0), price: basePrice(cs), n: cs[0].n.replace(/[_ ]S?PR$/, ""), sort: numKey(cs[0]) };
-  }).sort((a, b) => cmpKey(a.sort, b.sort));
+  // version de base d'abord : extension principale, sans mention entre parenthèses
+  const byBase = (a, b) => (a.s !== inf.main) - (b.s !== inf.main) || /\(/.test(a.name) - /\(/.test(b.name) || a.id - b.id;
+  let rows;
+  if (mode === "all") {
+    rows = [...inf.byNum].flatMap(([k, cs]) => [...cs].sort(byBase).map((c, i) => ({
+      k, card: c, have: ownedIds.get(c.id) || 0, price: marketEUR(c.id), n: c.n.replace(/[_ ]S?PR$/, ""),
+      label: i === 0 ? "Base" : versionLabel(c, inf), sort: [...numKey(cs[0]), i] })));
+  } else {
+    rows = [...inf.byNum].map(([k, cs]) => {
+      cs = [...cs].sort(byBase);
+      const own = cs.filter((c) => ownedIds.has(c.id));
+      return { k, card: own[0] ?? cs[0], have: own.reduce((a, c) => a + ownedIds.get(c.id), 0), price: basePrice(cs),
+        n: cs[0].n.replace(/[_ ]S?PR$/, ""), versions: cs.length, vOwned: own.length, sort: numKey(cs[0]) };
+    });
+  }
+  rows.sort((a, b) => cmpKey(a.sort, b.sort));
   const missing = rows.filter((r) => !r.have), have = rows.length - missing.length;
   const cost = missing.reduce((a, r) => a + (r.price || 0), 0), noPrice = missing.filter((r) => r.price == null).length;
   const list = show === "missing" ? missing : show === "owned" ? rows.filter((r) => r.have) : rows;
-  const rate = have / rows.length;
+  const x = completion().find((c) => c.key === key) ?? { ...inf, have: 0, total: inf.nums.size, rate: 0, vHave: 0, vTotal: inf.count };
   $("#sheet-body").innerHTML = `
     <div class="sheet-head"><div><h2>${esc(inf.code)}</h2><div class="muted small">${esc(inf.name)} · ${esc(GAME[inf.g])}</div></div>
       <button class="close" data-close aria-label="Fermer">${ICON_X}</button></div>
-    <div class="compl-row" style="border:0;cursor:default"><div class="nm">Complétion</div><div class="ct"><b>${have}</b> / ${rows.length} · ${pctInt(rate)}</div>
-      <div class="bar${have === rows.length ? " full" : ""}"><span style="width:${(rate * 100).toFixed(1)}%"></span></div></div>
+    <div style="margin:12px 0">${exTile(x, { click: false })}</div>
+    <div class="chips seg" id="set-mode" role="group" aria-label="Versions">
+      <button class="chip ${mode === "base" ? "on" : ""}" data-mode="base">Une par numéro</button>
+      <button class="chip ${mode === "all" ? "on" : ""}" data-mode="all">Toutes les versions</button>
+    </div>
     <div class="stats3">
-      ${statTile("Possédées", String(have), { display: false })}
-      ${statTile("Manquantes", String(missing.length), { display: false })}
-      ${statTile("Pour compléter", missing.length ? money(cost, 0) : "—", { display: false, hint: noPrice ? `${noPrice} sans prix` : "prix le plus bas" })}
+      ${statTile("Possédées", String(have), { display: false, hint: mode === "all" ? "versions" : "numéros" })}
+      ${statTile("Manquantes", String(missing.length), { display: false, hint: mode === "all" ? "versions" : "numéros" })}
+      ${statTile("Pour compléter", missing.length ? money(cost, 0) : "—", { display: false, hint: noPrice ? `${noPrice} sans prix` : mode === "all" ? "prix marché" : "prix le plus bas" })}
     </div>
     <div class="chips" id="set-chips">
       <button class="chip ${show === "all" ? "on" : ""}" data-show="all">Toutes (${rows.length})</button>
@@ -363,17 +377,40 @@ function openSet(key, show = "all") {
     </div>
     <div class="set-grid">${list.map((r) => `<div class="set-tile${r.have ? "" : " missing"}" data-id="${r.card.id}" data-own="${r.have ? 1 : ""}" role="button" tabindex="0">
         ${cardThumb(r.card, { qty: r.have })}
+        ${mode === "base" && r.versions > 1 ? `<span class="vb${r.vOwned ? " own" : ""}" title="${r.versions} versions">◆ ${r.vOwned ? `${r.vOwned}/` : ""}${r.versions}</span>` : ""}
         <div class="st-n">${esc(r.n)}</div>
+        ${mode === "all" ? `<div class="st-v">${esc(r.label)}</div>` : ""}
         <div class="st-p">${r.have ? `<span class="gain">✓ possédée</span>` : money(r.price)}</div></div>`).join("") || `<p class="muted small">Aucune carte.</p>`}</div>
-    <p class="muted small" style="margin-top:12px">Une carte par numéro (version de base, ou ta version si tu l'as). Coût pour compléter : prix de marché le plus bas parmi les versions de chaque numéro manquant. Touche une carte manquante pour l'ajouter.</p>`;
+    <p class="muted small" style="margin-top:12px">${mode === "base"
+      ? "Une tuile par numéro (version de base, ou ta version si tu l'as). ◆ indique le nombre de versions (alt art, SPR, promo…), et combien tu en as. Coût pour compléter : prix le plus bas parmi les versions de chaque numéro manquant."
+      : "Chaque version est affichée séparément, juste après sa version de base (complétion « master set »)."} Touche une carte manquante pour l'ajouter.</p>`;
   if (!$("#sheet").open) { $("#sheet").showModal(); document.documentElement.classList.add("modal-open"); }
   $("#sheet").scrollTop = 0;
-  $$("#set-chips .chip").forEach((b) => b.onclick = () => openSet(key, b.dataset.show));
+  $$("#set-chips .chip").forEach((b) => b.onclick = () => openSet(key, b.dataset.show, mode));
+  $$("#set-mode .chip").forEach((b) => b.onclick = () => openSet(key, show, b.dataset.mode));
   $$(".set-tile").forEach((t) => t.onclick = () => {
-    sheetBack = () => openSet(key, show);
+    sheetBack = () => openSet(key, show, mode);
     const id = +t.dataset.id, it = t.dataset.own && store.items.find((i) => i.id === id);
     openSheet(it ? { uid: it.uid } : { id });
   });
+}
+function versionLabel(c, inf) {
+  const m = [...c.name.matchAll(/\(([^)]+)\)/g)].map((x) => x[1]).filter((t) => !/^[A-Z]+\d*-[A-Z]*\d+$/i.test(t));
+  if (m.length) return m.join(" · ");
+  if (c.s !== inf.main) { const g = sets.get(c.s)?.name ?? ""; return g.replace(inf.name, "").replace(/^[\s:-]+/, "").trim() || g; }
+  return c.r || "Variante";
+}
+
+// Tuile d'extension : illustration de ta meilleure carte, %, compteur, barre
+function exTile(x, { compact = false, click = true } = {}) {
+  const full = x.have === x.total && x.total > 0;
+  const vt = x.vTotal > x.total ? `<span>Toutes versions : ${x.vHave} / ${x.vTotal}</span>` : "";
+  return `<div class="ex-tile${compact ? " compact" : ""}${full ? " full" : ""}"${click ? ` data-set="${esc(x.key)}" role="button" tabindex="0"` : ""}>
+    ${x.best ? `<img class="ex-bg" alt="" loading="lazy" src="${IMG(x.best.id)}">` : ""}
+    <div class="ex-top"><span class="ex-code">${esc(x.code)}</span><span class="ex-name">${esc(x.name)}</span></div>
+    <div class="ex-bottom"><span class="ex-pct">${pctInt(x.rate)}</span><span class="ex-count"><b>${x.have}</b> / ${x.total}${compact ? "" : vt}</span></div>
+    <div class="ex-bar"><span style="width:${(x.rate * 100).toFixed(1)}%"></span></div>
+  </div>`;
 }
 
 // ---------- Fiche Investissement ----------
@@ -643,7 +680,7 @@ function go(v) {
 let toastT;
 function toast(m) { const t = $("#toast"); t.textContent = m; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => (t.hidden = true), 2200); }
 
-document.addEventListener("keydown", (e) => { if ((e.key === "Enter" || e.key === " ") && e.target.matches(".tile, .result, .compl-row, .grid-head, .stat.act, .p-row, .set-tile")) { e.preventDefault(); e.target.click(); } });
+document.addEventListener("keydown", (e) => { if ((e.key === "Enter" || e.key === " ") && e.target.matches(".tile, .result, .ex-tile[data-set], .stat.act, .p-row, .set-tile")) { e.preventDefault(); e.target.click(); } });
 document.addEventListener("click", (e) => {
   const g = e.target.closest("[data-goto]"); if (g) return go(g.dataset.goto);
   if (e.target.closest('[data-act="invest"]')) return openInvest();
@@ -683,7 +720,7 @@ $("#reset").onclick = () => { if (confirm("Effacer toute la collection de cet ap
 })();
 let swReg = null;
 // Mises à jour : vérification à chaque retour dans l'app, rechargement automatique quand une nouvelle version est prête
-const APP_VERSION = "8 (02/11/2026)";
+const APP_VERSION = "9 (02/11/2026)";
 $("#app-version").textContent = `Version de l'app : ${APP_VERSION}`;
 if ("serviceWorker" in navigator) {
   const hadController = !!navigator.serviceWorker.controller;
