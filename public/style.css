@@ -244,3 +244,13 @@ dialog.sheet::backdrop { background: rgba(5, 8, 25, .7); }
 .grid-head .nm span { font-family: var(--f-body); font-size: var(--fs-sm); color: var(--muted); }
 .grid-head .ct { font-size: var(--fs-xs); color: var(--muted); align-self: center; }
 #my-cards { scroll-margin-top: calc(env(safe-area-inset-top) + 64px); }
+
+/* Investissement */
+.stat.act { cursor: pointer; }
+.stat.act .h { color: var(--accent); font-weight: 600; }
+.p-row { display: grid; grid-template-columns: 1fr auto; gap: 2px var(--s-sm); padding: var(--s-md) 0; border-top: 1px solid var(--line); cursor: pointer; }
+.p-row .nm { font-weight: 600; font-size: var(--fs-sm); min-width: 0; }
+.p-row .nm span, .p-row .sub { color: var(--muted); font-weight: 400; font-size: var(--fs-xs); }
+.p-row .ct { text-align: right; white-space: nowrap; font-size: var(--fs-sm); }
+.field[hidden] { display: none; }
+.form .actions { margin: 0; }

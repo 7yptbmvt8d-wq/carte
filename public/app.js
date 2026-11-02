@@ -13,10 +13,11 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 
 
 // ---------- Stockage local ----------
 const KEY = "dbcol.v1";
-const blank = () => ({ items: [], hist: {}, rates: {}, lastSnap: "", settings: { currency: "EUR", period: 180 } });
+const blank = () => ({ items: [], purchases: [], hist: {}, rates: {}, lastSnap: "", settings: { currency: "EUR", period: 180 } });
 let store;
 try { store = { ...blank(), ...JSON.parse(localStorage.getItem(KEY)) }; } catch { store = blank(); }
 store.settings = { ...blank().settings, ...store.settings };
+store.purchases ??= [];
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(store)); } catch { toast("Stockage plein : exporte puis supprime des photos."); } };
 
 const idb = (() => {
@@ -161,8 +162,8 @@ function cardThumb(card, { src, qty = 1, showRarity = true, glow = false, width,
     <img loading="lazy" alt="${esc(card?.name ?? "")}" src="${src ?? (card ? IMG(card.id) : "")}">
     ${showRarity && code ? `<span class="rb">${esc(code)}</span>` : ""}${qty > 1 ? `<span class="qb">×${qty}</span>` : ""}</div>`;
 }
-const statTile = (label, value, { hint = "", cls = "", display = true } = {}) =>
-  `<div class="stat" aria-label="${esc(label)} : ${esc(value)}${hint ? ", " + esc(hint) : ""}"><span class="l">${esc(label)}</span><span class="v ${display ? "" : "plain"} ${cls}">${esc(value)}</span>${hint ? `<span class="h">${esc(hint)}</span>` : ""}</div>`;
+const statTile = (label, value, { hint = "", cls = "", display = true, act = "" } = {}) =>
+  `<div class="stat${act ? " act" : ""}"${act ? ` data-act="${act}" role="button" tabindex="0"` : ""} aria-label="${esc(label)} : ${esc(value)}${hint ? ", " + esc(hint) : ""}"><span class="l">${esc(label)}</span><span class="v ${display ? "" : "plain"} ${cls}">${esc(value)}</span>${hint ? `<span class="h">${esc(hint)}</span>` : ""}</div>`;
 function trend(rel, size = "xs") {
   if (rel == null || !isFinite(rel)) return "";
   const v = rel * 100, n = Math.abs(v) < 0.05, f = (x) => x.toLocaleString("fr-FR", { maximumFractionDigits: 1 });
@@ -200,14 +201,33 @@ function priceChart(key, el, pts, { height = 110, color = "var(--accent)", ref =
 let resizeT;
 addEventListener("resize", () => { clearTimeout(resizeT); resizeT = setTimeout(() => { for (const [k, c] of Object.entries(charts)) if (c.el.isConnected) priceChart(k, c.el, c.pts, c.opts); }, 150); });
 
+// ---------- Investissement (achats à l'unité + achats scellés) ----------
+const PTYPES = ["Booster", "Display", "Coffret / Deck", "Lot", "Autre"];
+const hasBuy = (it) => !it.src && it.buy !== "" && it.buy != null;
+const purchase = (pid) => store.purchases.find((p) => p.pid === pid);
+const pLabel = (p) => `${p.label || p.type}${p.qty > 1 ? ` ×${p.qty}` : ""}`;
+function invest() {
+  let unit = 0, unitVal = 0, srcVal = 0;
+  for (const it of store.items) {
+    const v = (unitEUR(it) || 0) * it.qty;
+    if (it.src && purchase(it.src)) srcVal += v;
+    else if (hasBuy(it)) { unit += +it.buy * it.qty; unitVal += v; }
+  }
+  const sealed = store.purchases.reduce((a, p) => a + (+p.price || 0), 0);
+  return { unit, sealed, cost: unit + sealed, val: unitVal + srcVal };
+}
+function purchaseStats(p) {
+  let n = 0, val = 0;
+  for (const it of store.items) if (it.src === p.pid) { n += it.qty; val += (unitEUR(it) || 0) * it.qty; }
+  return { n, val, rel: p.price ? (val - p.price) / p.price : null };
+}
+
 // ---------- Vue Collection ----------
 async function renderCollection() {
   const items = store.items;
-  let total = 0, cost = 0, costVal = 0, n = 0;
-  for (const it of items) {
-    const v = (unitEUR(it) || 0) * it.qty; total += v; n += it.qty;
-    if (it.buy != null && it.buy !== "") { cost += +it.buy * it.qty; costVal += v; }
-  }
+  let total = 0, n = 0;
+  for (const it of items) { total += (unitEUR(it) || 0) * it.qty; n += it.qty; }
+  const inv = invest(), cost = inv.cost, costVal = inv.val;
   $("#total").textContent = money(total);
   $$("#periods .chip").forEach((b) => { const on = +b.dataset.p === store.settings.period; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on); });
 
@@ -224,7 +244,7 @@ async function renderCollection() {
   const pl = costVal - cost;
   $("#stats").innerHTML =
     statTile("Cartes", String(n), { hint: `${items.length} réf.` }) +
-    statTile("Investi", cost ? money(cost, 0) : "—", { hint: cost ? "prix d'achat" : "non renseigné" }) +
+    statTile("Investi", cost ? money(cost, 0) : "—", { hint: "Gérer ›", act: "invest" }) +
     statTile("Plus-value", cost ? `${pl >= 0 ? "+" : "−"}${money(Math.abs(pl), 0)}` : "—", { cls: cost ? (pl >= 0 ? "gain" : "loss") : "", hint: cost ? pct(pl / cost) : "" });
 
   // Plus fortes hausses / baisses
@@ -310,16 +330,71 @@ function renderResults(list, msg) {
     }).join("");
 }
 
+// ---------- Fiche Investissement ----------
+function openInvest(editPid) {
+  const inv = invest(), pl = inv.val - inv.cost;
+  const list = [...store.purchases].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  const ed = editPid === "new" ? { pid: "", type: "Display", label: "", qty: 1, price: "", date: today() } : editPid ? purchase(editPid) : null;
+  const opt = (arr, cur) => arr.map((x) => `<option ${x === cur ? "selected" : ""}>${x}</option>`).join("");
+  $("#sheet-body").innerHTML = `
+    <div class="sheet-head"><div><h2>Investissement</h2><div class="muted small">Achats à l'unité et produits scellés</div></div>
+      <button class="close" data-close aria-label="Fermer">${ICON_X}</button></div>
+    <div class="stats3">
+      ${statTile("Total investi", money(inv.cost, 0), { display: false })}
+      ${statTile("Scellé", money(inv.sealed, 0), { display: false, hint: `${store.purchases.length} achat${store.purchases.length > 1 ? "s" : ""}` })}
+      ${statTile("À l'unité", money(inv.unit, 0), { display: false })}
+    </div>
+    ${inv.cost ? `<div class="pl-line"><span class="muted">Plus-value (cartes rattachées à un coût)</span><b class="${pl >= 0 ? "gain" : "loss"}">${pl >= 0 ? "+" : "−"}${money(Math.abs(pl))} ${trend(pl / inv.cost, "sm")}</b></div>` : ""}
+    <h3 class="section" style="margin-top:16px">Achats scellés</h3>
+    ${ed ? `<form class="form" id="p-form">
+      <label class="field">Type<select name="type">${opt(PTYPES, ed.type)}</select></label>
+      <label class="field">Quantité<input name="qty" type="number" min="1" step="1" value="${ed.qty}" required></label>
+      <label class="field full">Intitulé<input name="label" value="${esc(ed.label)}" placeholder="ex. Display FB01 Awakened Pulse"></label>
+      <label class="field">Prix payé total (€)<input name="price" type="number" min="0" step="0.01" inputmode="decimal" value="${ed.price}" required></label>
+      <label class="field">Date d'achat<input name="date" type="date" value="${ed.date || ""}"></label>
+      <div class="actions field full">
+        ${ed.pid ? `<button type="button" class="btn danger" id="p-del">Supprimer</button>` : ""}
+        <button type="button" class="btn" id="p-cancel">Annuler</button>
+        <button type="submit" class="btn primary">${ed.pid ? "Enregistrer" : "Ajouter l'achat"}</button>
+      </div></form>`
+    : `<button class="btn primary" id="p-add" style="width:100%;margin-bottom:8px">+ Ajouter un achat (booster, display…)</button>`}
+    ${list.length ? list.map((p) => { const st = purchaseStats(p); return `<div class="p-row" data-pid="${p.pid}" role="button" tabindex="0">
+        <div class="nm">${esc(pLabel(p))} <span>· ${esc(p.type)}${p.date ? " · " + fmtDate(p.date) : ""}</span></div><div class="ct"><b>${money(+p.price)}</b></div>
+        <div class="sub">${st.n} carte${st.n > 1 ? "s" : ""} rattachée${st.n > 1 ? "s" : ""} · valeur ${money(st.val)}</div><div class="ct">${st.n ? trend(st.rel) : ""}</div></div>`; }).join("")
+    : `<p class="muted small">Aucun achat scellé.</p>`}
+    <p class="muted small" style="margin-top:12px">Ensuite, en ajoutant chaque carte sortie de cet achat, choisis-le dans « Provenance » : son coût est compté dans l'achat, pas sur la carte. La dernière provenance choisie est reprise par défaut.</p>`;
+  if (!$("#sheet").open) { $("#sheet").showModal(); document.documentElement.classList.add("modal-open"); }
+  $("#p-add") && ($("#p-add").onclick = () => openInvest("new"));
+  $("#p-cancel") && ($("#p-cancel").onclick = () => openInvest());
+  $$(".p-row").forEach((r) => r.onclick = () => openInvest(r.dataset.pid));
+  $("#p-del") && ($("#p-del").onclick = () => {
+    const st = purchaseStats(ed);
+    if (!confirm(`Supprimer cet achat ?${st.n ? ` Les ${st.n} carte(s) rattachée(s) restent dans la collection, sans coût.` : ""}`)) return;
+    store.purchases = store.purchases.filter((p) => p.pid !== ed.pid);
+    for (const it of store.items) if (it.src === ed.pid) it.src = "";
+    save(); renderCollection(); openInvest(); toast("Achat supprimé");
+  });
+  const f = $("#p-form");
+  if (f) f.onsubmit = (e) => {
+    e.preventDefault(); const fd = new FormData(f);
+    const data = { type: fd.get("type"), label: fd.get("label").trim(), qty: Math.max(1, parseInt(fd.get("qty")) || 1), price: Math.round(+fd.get("price") * 100) / 100, date: fd.get("date") };
+    if (ed.pid) Object.assign(ed, data);
+    else { const p = { pid: uid(), ...data }; store.purchases.push(p); store.settings.lastSrc = p.pid; }
+    save(); renderCollection(); openInvest(); toast(ed.pid ? "Achat modifié" : "Achat ajouté");
+  };
+}
+
 // ---------- Fiche carte (ajout / édition) ----------
 let scanBlob = null;
 const ICON_X = `<svg class="i" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>`;
 async function openSheet({ id, uid: u }) {
   const existing = u ? store.items.find((i) => i.uid === u) : null;
-  const it = existing ?? { id, qty: 1, cond: "Near Mint", lang: "EN", buy: "", buyDate: today(), manual: "", note: "" };
+  const lastSrc = purchase(store.settings.lastSrc) ? store.settings.lastSrc : "";
+  const it = existing ?? { id, qty: 1, cond: "Near Mint", lang: "EN", buy: "", buyDate: today(), manual: "", note: "", src: lastSrc };
   const c = byId.get(it.id), s = sets.get(c?.s), v = prices.p[it.id] || [];
   const unit = unitEUR(it), own = it.photo ? await photoUrl(it.uid) : null;
-  const hasBuy = it.buy !== "" && it.buy != null;
-  const plv = existing && hasBuy ? ((unit || 0) - it.buy) * it.qty : null;
+  const bought = hasBuy(it), src = it.src ? purchase(it.src) : null;
+  const plv = existing && bought ? ((unit || 0) - it.buy) * it.qty : null;
   const opt = (arr, cur) => arr.map((x) => `<option ${x === cur ? "selected" : ""}>${x}</option>`).join("");
 
   $("#sheet-body").innerHTML = `
@@ -333,6 +408,7 @@ async function openSheet({ id, uid: u }) {
       ${statTile("Plus bas", money(v[1] != null ? v[1] * rate() : null), { display: false })}
       ${existing ? statTile(`Total ×${it.qty}`, money((unit || 0) * it.qty), { display: false }) : statTile("Médian", money(v[2] != null ? v[2] * rate() : null), { display: false })}
     </div>
+    ${existing && src ? `<div class="pl-line"><span class="muted">Provenance</span><b>${esc(pLabel(src))}${src.date ? ` · ${fmtDate(src.date)}` : ""}</b></div>` : ""}
     ${plv != null ? `<div class="pl-line"><span class="muted">Plus-value</span><b class="${plv >= 0 ? "gain" : "loss"}">${plv >= 0 ? "+" : "−"}${money(Math.abs(plv))} ${trend(plv / (it.buy * it.qty), "sm")}</b></div>` : ""}
     <div class="chart-readout" id="card-readout"></div>
     <div class="chart" id="chart-card"></div>
@@ -342,9 +418,10 @@ async function openSheet({ id, uid: u }) {
       <label class="field">Quantité<input name="qty" type="number" min="1" step="1" value="${it.qty}" required></label>
       <label class="field">État<select name="cond">${opt(CONDS, it.cond)}</select></label>
       <label class="field">Langue<select name="lang">${opt(LANGS, it.lang)}</select></label>
-      <label class="field">Prix d'achat unitaire (€)<input name="buy" type="number" min="0" step="0.01" inputmode="decimal" value="${it.buy ?? ""}"></label>
-      <label class="field">Date d'achat<input name="buyDate" type="date" value="${it.buyDate ?? ""}"></label>
       <label class="field">Prix manuel (€)<input name="manual" type="number" min="0" step="0.01" inputmode="decimal" placeholder="ex. Cardmarket" value="${it.manual ?? ""}"></label>
+      <label class="field full">Provenance<select name="src"><option value="">Achat à l'unité</option>${[...store.purchases].sort((a, b) => (b.date || "").localeCompare(a.date || "")).map((p) => `<option value="${p.pid}" ${p.pid === it.src ? "selected" : ""}>${esc(pLabel(p))}${p.date ? " · " + fmtDate(p.date) : ""}</option>`).join("")}</select></label>
+      <label class="field" data-unit>Prix d'achat unitaire (€)<input name="buy" type="number" min="0" step="0.01" inputmode="decimal" value="${it.buy ?? ""}"></label>
+      <label class="field" data-unit>Date d'achat<input name="buyDate" type="date" value="${it.buyDate ?? ""}"></label>
       <label class="field full">Notes<textarea name="note" rows="2">${esc(it.note)}</textarea></label>
       <label class="field full">Ma photo de la carte<input name="photo" type="file" accept="image/*"></label>
       ${!existing && scanBlob ? `<label class="field full check"><input type="checkbox" name="useScan" checked> Utiliser la photo scannée</label>` : ""}
@@ -362,6 +439,9 @@ async function openSheet({ id, uid: u }) {
     $(".detail-thumb img").src = b.dataset.img === "own" ? own : IMG(it.id, true);
     $$("[data-img]").forEach((x) => x.classList.toggle("on", x === b));
   });
+  const srcSel = $('#item-form [name="src"]');
+  const syncSrc = () => $$("#item-form [data-unit]").forEach((l) => (l.hidden = !!srcSel.value));
+  srcSel.onchange = syncSrc; syncSrc();
   $("#save").onclick = () => saveItem(existing, it);
   if (existing) $("#del").onclick = async () => {
     if (!confirm("Supprimer cette carte de la collection ?")) return;
@@ -371,7 +451,7 @@ async function openSheet({ id, uid: u }) {
   };
   await loadServerHist(fromDate());
   if (!$("#sheet").open || !$("#chart-card")) return;
-  const ok = priceChart("card", $("#chart-card"), cardPoints(it.id), { grid: true, ref: hasBuy ? +it.buy : null, axis: $("#axis-card"), readout: $("#card-readout") });
+  const ok = priceChart("card", $("#chart-card"), cardPoints(it.id), { grid: true, ref: bought ? +it.buy : null, axis: $("#axis-card"), readout: $("#card-readout") });
   $("#card-chart-empty").hidden = ok;
 }
 function trendText(rel) {
@@ -393,11 +473,13 @@ async function saveItem(existing, base) {
   const f = $("#item-form"); if (!f.reportValidity()) return;
   const fd = new FormData(f);
   const num = (k) => (fd.get(k) === "" ? "" : Math.round(+fd.get(k) * 100) / 100);
-  const data = { qty: Math.max(1, parseInt(fd.get("qty")) || 1), cond: fd.get("cond"), lang: fd.get("lang"), buy: num("buy"), buyDate: fd.get("buyDate"), manual: num("manual"), note: fd.get("note").trim() };
+  const data = { qty: Math.max(1, parseInt(fd.get("qty")) || 1), cond: fd.get("cond"), lang: fd.get("lang"), buy: num("buy"), buyDate: fd.get("buyDate"), manual: num("manual"), note: fd.get("note").trim(), src: fd.get("src") || "" };
+  if (data.src) { data.buy = ""; data.buyDate = ""; }
+  if (!existing) store.settings.lastSrc = data.src;
   let it;
   if (existing) { it = Object.assign(existing, data); }
   else {
-    const twin = store.items.find((i) => i.id === base.id && i.cond === data.cond && i.lang === data.lang && !i.photo);
+    const twin = store.items.find((i) => i.id === base.id && i.cond === data.cond && i.lang === data.lang && (i.src || "") === data.src && !i.photo);
     const file = fd.get("photo");
     if (twin && !(file && file.size) && !fd.get("useScan")) { twin.qty += data.qty; it = twin; toast(`Quantité mise à jour (×${twin.qty})`); }
     else { it = { uid: uid(), id: base.id, added: new Date().toISOString(), ...data }; store.items.push(it); toast("Carte ajoutée"); }
@@ -489,10 +571,10 @@ async function importJSON(file) {
   } catch { toast("Fichier invalide"); }
 }
 function exportCSV() {
-  const rows = [["Numéro", "Nom", "Jeu", "Extension", "Rareté", "Quantité", "État", "Langue", "Prix achat (€)", "Date achat", "Valeur unitaire (€)", "Valeur totale (€)", "Notes"]];
+  const rows = [["Numéro", "Nom", "Jeu", "Extension", "Rareté", "Quantité", "État", "Langue", "Provenance", "Prix achat (€)", "Date achat", "Valeur unitaire (€)", "Valeur totale (€)", "Notes"]];
   for (const it of store.items) {
     const c = byId.get(it.id) || {}, u = unitEUR(it);
-    rows.push([c.n, c.name, GAME[c.g], sets.get(c.s)?.name, c.r, it.qty, it.cond, it.lang, it.buy, it.buyDate, u?.toFixed(2), u != null ? (u * it.qty).toFixed(2) : "", it.note]);
+    rows.push([c.n, c.name, GAME[c.g], sets.get(c.s)?.name, c.r, it.qty, it.cond, it.lang, it.src ? pLabel(purchase(it.src) || { type: "" }) : "Unité", it.buy, it.buyDate, u?.toFixed(2), u != null ? (u * it.qty).toFixed(2) : "", it.note]);
   }
   download(`collection-dbs-${today()}.csv`, "﻿" + rows.map((r) => r.map((x) => `"${String(x ?? "").replace(/"/g, '""')}"`).join(";")).join("\n"), "text/csv");
 }
@@ -510,9 +592,10 @@ function go(v) {
 let toastT;
 function toast(m) { const t = $("#toast"); t.textContent = m; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => (t.hidden = true), 2200); }
 
-document.addEventListener("keydown", (e) => { if ((e.key === "Enter" || e.key === " ") && e.target.matches(".tile, .result, .compl-row")) { e.preventDefault(); e.target.click(); } });
+document.addEventListener("keydown", (e) => { if ((e.key === "Enter" || e.key === " ") && e.target.matches(".tile, .result, .compl-row, .stat.act, .p-row")) { e.preventDefault(); e.target.click(); } });
 document.addEventListener("click", (e) => {
   const g = e.target.closest("[data-goto]"); if (g) return go(g.dataset.goto);
+  if (e.target.closest('[data-act="invest"]')) return openInvest();
   const ex = e.target.closest(".compl-row");
   if (ex) { $("#filter").value = ex.dataset.ex + "-"; $("#sort").value = "number"; renderGrid(); store.settings.sort = "number"; save(); $("#my-cards").scrollIntoView({ behavior: "smooth", block: "start" }); return; }
   const tile = e.target.closest(".tile, .mover"); if (tile) return openSheet({ uid: tile.dataset.uid });
@@ -549,7 +632,7 @@ $("#reset").onclick = () => { if (confirm("Effacer toute la collection de cet ap
 })();
 let swReg = null;
 // Mises à jour : vérification à chaque retour dans l'app, rechargement automatique quand une nouvelle version est prête
-const APP_VERSION = "6 (02/11/2026)";
+const APP_VERSION = "7 (02/11/2026)";
 $("#app-version").textContent = `Version de l'app : ${APP_VERSION}`;
 if ("serviceWorker" in navigator) {
   const hadController = !!navigator.serviceWorker.controller;
