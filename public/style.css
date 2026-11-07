@@ -299,3 +299,16 @@ dialog.sheet::backdrop { background: rgba(5, 8, 25, .7); }
 .vb { position: absolute; top: 6px; left: 6px; z-index: 1; padding: 2px 6px; border-radius: var(--r-thumb); background: var(--bg); color: var(--spark); font-size: 10px; font-weight: 700; line-height: 1.3; }
 .vb.own { background: var(--gold); color: var(--bg); }
 .set-tile .st-v { font-size: var(--fs-xxs); color: var(--spark); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Conseil de gradation */
+.gtag { flex: none; font-size: var(--fs-xxs); font-weight: 700; padding: 3px 8px; border-radius: var(--r-chip); white-space: nowrap; }
+.gtag.g1 { background: color-mix(in srgb, var(--gold) 22%, transparent); color: var(--gold); }
+.gtag.g2 { background: var(--accent); color: var(--on-accent); }
+.gtag.g3 { background: var(--blue); color: var(--bg); }
+.g-row .nm { font-size: var(--fs-sm); }
+.grade-box { display: grid; gap: 4px; padding: var(--s-md); border-radius: var(--r-block); background: var(--surface-2); border-left: 4px solid var(--muted); margin-bottom: var(--s-sm); font-size: var(--fs-sm); }
+.grade-box .muted { font-size: var(--fs-xs); }
+.grade-box.g1 { border-left-color: var(--gold); }
+.grade-box.g2 { border-left-color: var(--accent); }
+.grade-box.g3 { border-left-color: var(--blue); }
+.grade-box.g-done { border-left-color: var(--gain); }

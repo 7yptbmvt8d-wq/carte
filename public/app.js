@@ -234,6 +234,55 @@ function purchaseStats(p) {
   return { n, val, rel: p.price ? (val - p.price) / p.price : null };
 }
 
+// ---------- Conseil de gradation (pré-tri sans saisie) ----------
+const GRADE_DEF = { low: 20, mid: 60, high: 150 };
+const GRADE_LVL = [
+  { label: "Pas rentable", cls: "g0" },
+  { label: "À étudier", cls: "g1" },
+  { label: "Candidate à la gradation", cls: "g2" },
+  { label: "Authentification conseillée", cls: "g3" },
+];
+const gradeCfg = () => ({ ...GRADE_DEF, ...store.settings.grade });
+function premiumWhy(c) {
+  if (!c) return "";
+  const alt = c.name.match(/\((Alternate Art|Alt Art|SPR|SCR|[^)]*Rare[^)]*)\)/i);
+  if (alt) return alt[1];
+  const t = rarity(c.r).tier;
+  return t === "SCR" ? c.r : "";
+}
+function gradeAdvice(it) {
+  const c = byId.get(it.id), v = unitEUR(it);
+  if (!c || v == null || it.graded) return null;
+  const s = gradeCfg(), prem = premiumWhy(c);
+  const pts = cardPoints(it.id, daysAgo(90));
+  const rise = pts.length >= 2 && pts[0][1] ? (pts.at(-1)[1] - pts[0][1]) / pts[0][1] : null;
+  const rising = rise != null && rise >= 0.1;
+  let lvl;
+  if (v > s.high) lvl = 3;
+  else if (v < s.low) lvl = 0;
+  else {
+    lvl = prem ? (v > s.mid ? 2 : 1) : (v > s.mid ? 1 : 0);
+    if (rising && lvl < 2) lvl++;
+  }
+  const why = [prem || c.r, money(v)];
+  if (rising) why.push(`prix en hausse (${pct(rise)} sur 3 mois)`);
+  if (lvl === 0 && v < s.low) why.push(`sous ${s.low} € les frais dépassent le gain possible`);
+  if (lvl === 3) why.push("protège la revente, même sans gain de note");
+  return { lvl, ...GRADE_LVL[lvl], why: why.join(" · "), v };
+}
+const gradeTag = (a) => (a ? `<span class="gtag ${a.cls}">${a.label}</span>` : "");
+const GRADE_CHECK = "Avant d'envoyer : vérifie le centrage, les coins, les bords et la surface. Une carte mal centrée ou rayée finira en 8 ou moins.";
+
+function renderGrading() {
+  const el = $("#grading");
+  const list = store.items.map((it) => ({ it, a: gradeAdvice(it) })).filter((x) => x.a && x.a.lvl >= 2).sort((a, b) => b.a.v - a.a.v);
+  el.hidden = !list.length; if (!list.length) return;
+  el.innerHTML = `<div class="compl-head"><h2 class="section">Candidates à la gradation</h2><span class="muted small">${list.length} carte${list.length > 1 ? "s" : ""}</span></div>
+    ${list.slice(0, 8).map(({ it, a }) => { const c = byId.get(it.id); return `<div class="mover g-row" data-uid="${it.uid}">${cardThumb(c, { width: 40, showRarity: false })}
+      <div class="grow"><div class="nm">${esc(c?.name ?? "")}</div><div class="muted small">${esc(c?.n ?? "")} · ${money(a.v)}</div></div>${gradeTag(a)}</div>`; }).join("")}
+    <p class="muted small" style="margin:8px 0 0">Pré-tri selon la valeur, la rareté, la version et la tendance du prix. ${GRADE_CHECK}</p>`;
+}
+
 // ---------- Vue Collection ----------
 async function renderCollection() {
   const items = store.items;
@@ -267,6 +316,7 @@ async function renderCollection() {
   $("#movers").innerHTML = ch.length ? `<div class="block"><h3>Hausses</h3>${mv(up)}</div><div class="block"><h3>Baisses</h3>${mv(dn)}</div>` : "";
 
   renderCompletion();
+  renderGrading();
   renderGrid();
 }
 
@@ -502,6 +552,8 @@ async function openSheet({ id, uid: u }) {
       ${existing ? statTile(`Total ×${it.qty}`, money((unit || 0) * it.qty), { display: false }) : statTile("Médian", money(v[2] != null ? v[2] * rate() : null), { display: false })}
     </div>
     ${existing && src ? `<div class="pl-line"><span class="muted">Provenance</span><b>${esc(pLabel(src))}${src.date ? ` · ${fmtDate(src.date)}` : ""}</b></div>` : ""}
+    ${(() => { if (!existing) return ""; if (it.graded) return `<div class="grade-box g-done"><b>Gradation</b><span>Carte déjà gradée.</span></div>`;
+      const a = gradeAdvice(it); return a ? `<div class="grade-box ${a.cls}"><b>Gradation : ${a.label}</b><span>${esc(a.why)}</span>${a.lvl >= 1 ? `<span class="muted">${GRADE_CHECK}</span>` : ""}</div>` : ""; })()}
     ${plv != null ? `<div class="pl-line"><span class="muted">Plus-value</span><b class="${plv >= 0 ? "gain" : "loss"}">${plv >= 0 ? "+" : "−"}${money(Math.abs(plv))} ${trend(plv / (it.buy * it.qty), "sm")}</b></div>` : ""}
     <div class="chart-readout" id="card-readout"></div>
     <div class="chart" id="chart-card"></div>
@@ -515,6 +567,7 @@ async function openSheet({ id, uid: u }) {
       <label class="field full">Provenance<select name="src"><option value="">Achat à l'unité</option>${[...store.purchases].sort((a, b) => (b.date || "").localeCompare(a.date || "")).map((p) => `<option value="${p.pid}" ${p.pid === it.src ? "selected" : ""}>${esc(pLabel(p))}${p.date ? " · " + fmtDate(p.date) : ""}</option>`).join("")}</select></label>
       <label class="field" data-unit>Prix d'achat unitaire (€)<input name="buy" type="number" min="0" step="0.01" inputmode="decimal" value="${it.buy ?? ""}"></label>
       <label class="field" data-unit>Date d'achat<input name="buyDate" type="date" value="${it.buyDate ?? ""}"></label>
+      <label class="field full check"><input type="checkbox" name="graded" ${it.graded ? "checked" : ""}> Carte déjà gradée (exclue du conseil)</label>
       <label class="field full">Notes<textarea name="note" rows="2">${esc(it.note)}</textarea></label>
       <label class="field full">Ma photo de la carte<input name="photo" type="file" accept="image/*"></label>
       ${!existing && scanBlob ? `<label class="field full check"><input type="checkbox" name="useScan" checked> Utiliser la photo scannée</label>` : ""}
@@ -569,7 +622,7 @@ async function saveItem(existing, base) {
   const f = $("#item-form"); if (!f.reportValidity()) return;
   const fd = new FormData(f);
   const num = (k) => (fd.get(k) === "" ? "" : Math.round(+fd.get(k) * 100) / 100);
-  const data = { qty: Math.max(1, parseInt(fd.get("qty")) || 1), cond: fd.get("cond"), lang: fd.get("lang"), buy: num("buy"), buyDate: fd.get("buyDate"), manual: num("manual"), note: fd.get("note").trim(), src: fd.get("src") || "" };
+  const data = { qty: Math.max(1, parseInt(fd.get("qty")) || 1), cond: fd.get("cond"), lang: fd.get("lang"), buy: num("buy"), buyDate: fd.get("buyDate"), manual: num("manual"), note: fd.get("note").trim(), src: fd.get("src") || "", graded: !!fd.get("graded") };
   if (data.src) { data.buy = ""; data.buyDate = ""; }
   if (!existing) store.settings.lastSrc = data.src;
   let it;
@@ -711,6 +764,10 @@ $("#periods").onclick = async (e) => {
   store.settings.period = +b.dataset.p; save();
   await loadServerHist(fromDate()); renderCollection();
 };
+for (const k of ["low", "mid", "high"]) {
+  const inp = $(`#g-${k}`); inp.value = gradeCfg()[k];
+  inp.onchange = () => { const v = Math.max(0, +inp.value || 0); store.settings.grade = { ...gradeCfg(), [k]: v }; inp.value = v; save(); renderCollection(); };
+}
 $("#currency").value = store.settings.currency;
 $("#currency").onchange = (e) => { store.settings.currency = e.target.value; save(); renderCollection(); };
 $("#export").onclick = exportJSON;
@@ -729,7 +786,7 @@ $("#reset").onclick = () => { if (confirm("Effacer toute la collection de cet ap
 })();
 let swReg = null;
 // Mises à jour : vérification à chaque retour dans l'app, rechargement automatique quand une nouvelle version est prête
-const APP_VERSION = "10 (02/11/2026)";
+const APP_VERSION = "11 (07/11/2026)";
 $("#app-version").textContent = `Version de l'app : ${APP_VERSION}`;
 if ("serviceWorker" in navigator) {
   const hadController = !!navigator.serviceWorker.controller;

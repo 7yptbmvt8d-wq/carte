@@ -1,6 +1,6 @@
 // Service worker : app utilisable hors connexion (collection + dernières données téléchargées).
-const V = "dbcol-v10";
-const SHELL = ["./", "index.html", "style.css?v=10", "app.js?v=10", "manifest.webmanifest", "icons/icon.svg", "icons/icon-180.png"];
+const V = "dbcol-v11";
+const SHELL = ["./", "index.html", "style.css?v=11", "app.js?v=11", "manifest.webmanifest", "icons/icon.svg", "icons/icon-180.png"];
 
 self.addEventListener("install", (e) => { e.waitUntil(caches.open(V).then((c) => c.addAll(SHELL.map((u) => new Request(u, { cache: "reload" }))))); self.skipWaiting(); });
 self.addEventListener("activate", (e) => {
